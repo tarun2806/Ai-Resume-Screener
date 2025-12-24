@@ -26,3 +26,4 @@ frontend/.vite/
 # Misc
 *.sqlite3
 hf_deploy/venv/
+v1-AI-Resume-Screener/

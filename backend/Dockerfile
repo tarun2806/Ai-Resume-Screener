@@ -2,6 +2,11 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+# Optimize memory for Free Tier
+ENV PYTHONUNBUFFERED=1 \
+    SCIKIT_LEARN_NO_OPENMP=1 \
+    OMP_NUM_THREADS=1
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
