@@ -16,11 +16,14 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for caching
 COPY requirements.txt .
 
-# Install CPU-only PyTorch first (massive size saving)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# Install uv for faster builds
+RUN pip install uv
 
-# Install other dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install CPU-only PyTorch using uv (much faster)
+RUN uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install other dependencies using uv
+RUN uv pip install --system -r requirements.txt
 
 # Download Spacy model
 RUN python -m spacy download en_core_web_sm
