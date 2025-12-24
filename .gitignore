@@ -25,3 +25,4 @@ frontend/.vite/
 .idea/
 # Misc
 *.sqlite3
+hf_deploy/venv/
