@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+spacy
+sentence-transformers
+scikit-learn
+pymupdf
+python-docx
+pandas
+python-dotenv
+python-magic
+jinja2
