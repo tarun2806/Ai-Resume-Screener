@@ -1,0 +1,74 @@
+{
+  "skills": {
+    "python": {
+      "category": "language",
+      "synonyms": ["py", "python3"],
+      "related": {
+        "django": 0.9,
+        "flask": 0.8,
+        "fastapi": 0.8,
+        "pandas": 0.7,
+        "numpy": 0.7,
+        "scikit-learn": 0.7
+      }
+    },
+    "javascript": {
+      "category": "language",
+      "synonyms": ["js", "es6"],
+      "related": {
+        "react": 0.9,
+        "node.js": 0.8,
+        "typescript": 0.8,
+        "vue": 0.7,
+        "angular": 0.7,
+        "next.js": 0.8
+      }
+    },
+    "machine learning": {
+      "category": "domain",
+      "synonyms": ["ml", "ai", "artificial intelligence"],
+      "related": {
+        "deep learning": 0.9,
+        "nlp": 0.8,
+        "computer vision": 0.8,
+        "tensorflow": 0.9,
+        "pytorch": 0.9,
+        "xgboost": 0.7
+      }
+    },
+    "cloud computing": {
+      "category": "domain",
+      "synonyms": ["cloud", "cloud infrastructure"],
+      "related": {
+        "aws": 0.9,
+        "azure": 0.8,
+        "gcp": 0.8,
+        "docker": 0.7,
+        "kubernetes": 0.7,
+        "terraform": 0.6
+      }
+    },
+    "data science": {
+      "category": "domain",
+      "synonyms": ["analytics", "big data"],
+      "related": {
+        "statistics": 0.8,
+        "power bi": 0.7,
+        "tableau": 0.7,
+        "sql": 0.9,
+        "apache spark": 0.7
+      }
+    },
+    "devops": {
+      "category": "domain",
+      "synonyms": ["sre", "platform engineering"],
+      "related": {
+        "ci/cd": 0.9,
+        "jenkins": 0.8,
+        "ansible": 0.7,
+        "github actions": 0.8,
+        "monitoring": 0.6
+      }
+    }
+  }
+}

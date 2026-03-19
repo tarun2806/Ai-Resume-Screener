@@ -1,116 +1,76 @@
-from typing import Dict, List, Set
+import json
+import os
+from typing import Dict, List, Set, Any
 
-# Enhanced Skill Ontology with Weighted Relationships
-SKILL_ONTOLOGY = {
-    "procure to pay": {
-        "category": "domain",
-        "synonyms": ["p2p", "procurement to payment"],
-        "related": {
-            "accounts payable": 1.0,
-            "invoice processing": 1.0,
-            "vendor reconciliation": 0.9,
-            "payment validation": 0.8,
-            "erp systems": 0.7,
-            "sap": 0.7,
-            "purchase orders": 0.9,
-            "indirect procurement": 0.6
-        }
-    },
-    "order to cash": {
-        "category": "domain",
-        "synonyms": ["o2c"],
-        "related": {
-            "sales orders": 1.0,
-            "credit management": 0.9,
-            "order fulfillment": 0.9,
-            "invoicing": 1.0,
-            "accounts receivable": 1.0,
-            "collections": 0.8
-        }
-    },
-    "machine learning": {
-        "category": "domain",
-        "synonyms": ["ml", "artificial intelligence", "ai"],
-        "related": {
-            "deep learning": 0.9,
-            "neural networks": 0.8,
-            "scikit-learn": 1.0,
-            "tensorflow": 0.9,
-            "pytorch": 0.9,
-            "model evaluation": 0.8,
-            "feature engineering": 0.9
-        }
-    },
-    "data science": {
-        "category": "domain",
-        "related": {
-            "data analysis": 1.0,
-            "statistics": 0.9,
-            "python": 0.8,
-            "r": 0.8,
-            "sql": 0.8,
-            "data visualization": 0.7
-        }
-    },
-    "erp systems": {
-        "category": "tools",
-        "related": {
-            "sap": 0.9,
-            "oracle": 0.9,
-            "microsoft dynamics": 0.8,
-            "netsuite": 0.8
-        }
-    }
-}
+# Load Ontology from JSON
+ONTOLOGY_PATH = os.path.join(os.path.dirname(__file__), "skill_ontology.json")
 
-# General Skill Categories for classification
-CATEGORIES = {
-    "tools": [
-        "python", "java", "javascript", "react", "node.js", "fastapi", "sql", "postgresql", 
-        "mongodb", "docker", "aws", "azure", "git", "ci/cd", "sap", "oracle", "tableau", 
-        "power bi", "excel", "kubernetes", "typescript", "next.js", "terraform", "erp",
-        "docker", "kubernetes", "jenkins", "jira", "confluence"
-    ],
-    "soft_skills": [
-        "leadership", "communication", "teamwork", "problem solving", "time management", 
-        "adaptability", "critical thinking", "collaboration", "presentation", "mentoring",
-        "attention to detail", "stakeholder management", "process compliance"
-    ]
-}
+def load_ontology() -> Dict[str, Any]:
+    try:
+        with open(ONTOLOGY_PATH, 'r') as f:
+            return json.load(f)["skills"]
+    except Exception as e:
+        print(f"Error loading ontology: {e}")
+        return {}
 
-def get_skill_category(skill_name: str) -> str:
-    skill_lower = skill_name.lower()
-    if skill_lower in CATEGORIES["tools"]:
-        return "Tool/Technology"
-    if skill_lower in CATEGORIES["soft_skills"]:
-        return "Soft Skill"
-    
-    # Check if it belongs to a known domain in ontology
-    for domain, data in SKILL_ONTOLOGY.items():
-        if skill_lower == domain or skill_lower in data.get("synonyms", []) or skill_lower in data.get("related", {}):
-            return "Domain Skill"
-            
-    return "Domain Skill" # Default
+SKILL_ONTOLOGY = load_ontology()
 
 def expand_skills_semantically(skills: List[str]) -> Dict[str, float]:
-    """Expands skills and assigns weights (1.0 for direct, <1.0 for inferred)."""
+    """
+    Expands skills using the ontology.
+    - 1.0 for manual/direct matches.
+    - 0.8-0.9 for semantic inferences based on ontology relationships.
+    """
     expanded = {s.lower(): 1.0 for s in skills}
     
     for skill in skills:
-        skill_lower = skill.lower()
-        # Direct Match in Ontology
-        if skill_lower in SKILL_ONTOLOGY:
-            for related, weight in SKILL_ONTOLOGY[skill_lower]["related"].items():
-                if related not in expanded or weight > expanded[related]:
-                    expanded[related] = weight * 0.8 # Inferred skills get a slight penalty
+        skill_lower = skill.lower().strip()
         
-        # Synonym Check
-        for domain, data in SKILL_ONTOLOGY.items():
+        # 1. Direct Match in Ontology
+        if skill_lower in SKILL_ONTOLOGY:
+            _apply_relations(skill_lower, expanded)
+        
+        # 2. Synonym / Implicit Match
+        for canonical, data in SKILL_ONTOLOGY.items():
             if skill_lower in data.get("synonyms", []):
-                # If they mention a synonym, they effectively mention the domain
-                expanded[domain] = 1.0
-                for related, weight in data.get("related", {}).items():
-                    if related not in expanded or weight > expanded[related]:
-                        expanded[related] = weight * 0.8
-    
+                expanded[canonical] = 1.0 # If they mention a synonym, they mention the canonical
+                _apply_relations(canonical, expanded)
+                
     return expanded
+
+def _apply_relations(skill_key: str, expanded_dict: Dict[str, float]):
+    """Recursively applies related skill weights."""
+    related = SKILL_ONTOLOGY[skill_key].get("related", {})
+    for rel_skill, base_weight in related.items():
+        # Apply a small decay factor for inferred vs direct skills
+        inferred_weight = base_weight * 0.85
+        if rel_skill not in expanded_dict or inferred_weight > expanded_dict[rel_skill]:
+            expanded_dict[rel_skill.lower()] = inferred_weight
+
+def get_skill_category(skill_name: str) -> str:
+    """Classifies skills using ontology categories."""
+    skill_lower = skill_name.lower().strip()
+    
+    # 1. Direct Check
+    if skill_lower in SKILL_ONTOLOGY:
+        return SKILL_ONTOLOGY[skill_lower].get("category", "General Skill").title()
+    
+    # 2. Check Synonyms
+    for canonical, data in SKILL_ONTOLOGY.items():
+        if skill_lower in data.get("synonyms", []):
+            return data.get("category", "General Skill").title()
+            
+    # 3. Check if it's a related skill of something we know
+    for canonical, data in SKILL_ONTOLOGY.items():
+        if skill_lower in data.get("related", {}):
+            return "Domain Skill"
+            
+    return "Domain Skill"
+
+if __name__ == "__main__":
+    # Test
+    test_skills = ["Python", "JS", "ML"]
+    expanded = expand_skills_semantically(test_skills)
+    print("Test Expansion Results:")
+    for s, w in sorted(expanded.items(), key=lambda x: x[1], reverse=True):
+        print(f"- {s}: {w:.2f}")

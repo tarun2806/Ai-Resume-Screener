@@ -1,99 +1,85 @@
 # AI ScreenX 🚀 | Advanced AI Resume Screener & Career Matcher
 
-**AI ScreenX** is a sophisticated, full-stack AI platform designed to bridge the gap between candidates and recruiters using state-of-the-art Natural Language Processing (NLP). Unlike traditional keyword-matchers, AI ScreenX uses semantic vector embeddings and a custom domain ontology to understand **intent**, **transferable skills**, and **career trajectory**.
+**AI ScreenX** is a production-ready, full-stack AI platform designed to transform how candidates apply and recruiters hire. By moving beyond simple keyword-matching, AI ScreenX uses **Deep Semantic Intelligence** and a **Domain-Specific Skill Ontology** to understand the intent, context, and trajectory of a professional profile.
+
+---
+
+## 🛠 Project Purpose
+The project serves two core personas:
+- **Recruiters**: Instantly rank thousands of resumes against a job description (JD) using semantic meaning rather than just exact words.
+- **Candidates**: Act as an AI-powered career assistant, providing transparent scoring and a step-by-step optimization plan to help candidates better align with their target roles.
 
 ---
 
 ## 🌟 Key Features
 
-### 🧠 Semantic Intelligence
+### 1. 🧠 Semantic Skill Ontology System
+Unlike traditional ATS which fail if a candidate uses "JS" instead of "JavaScript," AI ScreenX uses a custom-built Knowledge Graph:
+- **Skill Normalization**: Automatically maps variations (e.g., `Py` → `Python`, `K8s` → `Kubernetes`).
+- **Semantic Expansion**: When a JD asks for "Machine Learning," the system automatically grants partial relevant credit for related expertise like "Deep Learning" or "NLP."
+- **Weighted Inference**: Direct matches get 1.0 weight, while inferred/related skills get a slight decay factor (e.g., 0.85), mimicking how a human expert evaluates a resume.
 
-- **Transformer-based SBERT Integration**: Uses `all-MiniLM-L6-v2` to generate 384-dimensional dense vectors for semantic similarity analysis.
-- **Fuzzy Skill Matching**: Rewards candidates with "Inferred Skills" (e.g., recognizing that an 'ERP' background maps to 'SAP' or 'Oracle').
-- **Weighted Scoring Fairness**: Aggregates Skill Match (40%), Experience Relevance (30%), Semantic Alignment (20%), and Resume Quality (10%).
+### 2. 🔍 Expert AI Parsing Engine
+A robust NLP pipeline that extracts more than just text:
+- **Section Identification**: Logically segments the document into "Experience," "Education," "Projects," and "Skills."
+- **Experience Analytics**: Dynamically calculates total years of professional experience by parsing date ranges and tenures across resume sections.
+- **Entity Extraction**: Uses high-speed regex and NLP heuristics to reliably identify personal info, emails, and phone numbers even in complex layouts.
 
-### 🔍 Explainable AI (XAI)
+### 3. � Multi-Factor Weighted Scoring
+The "Match Score" isn't a random percentage. It’s a transparent, weighted aggregation of:
+- **Skill Overlap (40%)**: Hard technical alignment.
+- **Semantic Alignment (40%)**: Understanding of the "intent" of the candidate’s work history.
+- **Experience Fit (20%)**: Structural alignment with seniority requirements (years of experience).
 
-- **Score Breakdown**: Transparent visualization of exactly how a candidate was scored.
-- **Natural Language Explanations**: AI-generated reasoning for the match score.
-- **AI Improvement Plan**: Dynamic, JD-aware suggestions that specify the "Estimated Score Impact" for each resume optimization.
-
-### 💼 Dual Dashboards
-
-- **Candidate Hub**: Upload resumes and receive instant, actionable feedback to align with target JDs.
-- **Recruiter Command Center**: Rank hundreds of candidates instantly based on AI-calculated fit rather than simple keywords.
-
----
-
-## 🛠 Tech Stack
-
-- **Backend**: Python, FastAPI, SpaCy (NLP), Sentence-Transformers (BERT), PyMuPDF.
-- **Frontend**: React, TypeScript, Tailwind CSS, Lucide-React, Recharts.
-- **Environment**: Virtual Environment (Venv), Docker-ready.
+### 4. � Actionable AI Career Advice
+The system acts as a mentor by generating:
+- **Missing Skill Detection**: Identifying exactly which high-priority JD skills are absent from the resume.
+- **Dynamic Optimization Tips**: Specific, contextual suggestions for improving the profile.
+- **Estimated Score Boost**: Calculates the potential impact (e.g., "+15% Boost") of each improvement, giving candidates a clear goal.
 
 ---
 
 ## 📐 System Architecture
 
-1. **Extraction Layer**: PyMuPDF and python-docx extract raw text from candidate credentials.
-2. **NLP Engine**: SpaCy cleans the text and extracts explicit skills, entities, and education.
-3. **Ontology Layer**: A custom domain ontology expands JD requirements into related semantic concepts.
-4. **Vector Analysis**: Sentence-BERT computes the Cosine Similarity between the Resume and the Job Description vectors.
-5. **Heuristic Filter**: Final scoring logic applies weights to calculate structural quality and experience relevance.
+### **Backend (Python / FastAPI)**
+- **Orchestration**: A unified asynchronous pipeline that processes resumes and job descriptions concurrently using `asyncio` for maximum speed.
+- **NLP Processing**: Built with **SpaCy** and custom rule-based heuristics for high-speed text extraction.
+- **Semantic Engine**: Designed for **Sentence-BERT (SBERT)** integration to handle high-dimensional vector embeddings and cosine similarity.
+- **Vector Search**: Integrated with **FAISS** for ultra-low-latency similarity search across large datasets.
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.9+
-- Node.js 18+
-
-### 1. Backend Setup
-
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python3 -m spacy download en_core_web_md
-python main.py
-```
-
-### 2. Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### **Frontend (React / TypeScript)**
+- **Modern UI**: Styled with **Tailwind CSS** for an "Enterprise SOC Dashboard" aesthetic.
+- **Interactive DataViz**: Uses **Recharts** for real-time match breakdown and scoring visualizations.
+- **Performance**: Powered by **Vite** for sub-second hot-reloads and optimized production bundles.
 
 ---
 
 ## 🎯 Interview Talking Points (Technical FAQ)
 
-- **Why SBERT?** "Keywords are fragile. SBERT captures context. It understands that 'Financial Operations' and 'Accounts Payable' are professionally adjacent."
-- **Bias Mitigation**: "The system is structure-blind. It evaluates candidates based on the mathematical vector of their experience, not their choice of template or fonts."
-- **Transferable Skills**: "By using a weighted ontology, we ensure that a candidate with 'Procure to Pay' experience is rewarded when a JD asks for 'Invoicing'—even if the exact word is missing."
+### "What makes this different from a basic keyword matcher?"
+> "Keyword matchers are fragile; if a JD asks for 'React' and I have 'Frontend Engineer,' a regular ATS might miss the connection. My project uses a **Skill Ontology** and **Semantic Embeddings** to understand that those concepts are professionally adjacent. This decreases 'false negatives' in recruitment."
+
+### "How did you handle large ML dependencies in production?"
+> "I designed the system to be **modular and resilient**. For instance, I implemented a robust **Rule-based fallback engine** that ensures the core logic (parsing and matching) remains 100% functional even in resource-constrained environments where heavy ML distributions like SBERT might not be immediately available."
+
+### "Explain the scoring logic."
+> "I implemented a **weighted multi-factor scoring system**. We compute three distinct scores: a raw skill overlap, a semantic vector similarity, and an experience-tenure fit. We then aggregate these using weights (40/40/20) to provide a balanced evaluation that is fairer than simple word-counting."
 
 ---
 
-## 📁 Project Structure
-
+## 📁 Project Structure (Organized)
 ```text
-├── backend/            # FastAPI & AI Logic
+├── backend/            # FastAPI & AI Engine
 │   ├── app/
-│   │   ├── api/        # Routers
-│   │   ├── services/   # Semantic Engine & Parser
-│   │   └── ml/         # Domain Ontology
+│   │   ├── api/        # Unified API Routers (Resumes, Jobs, Matches)
+│   │   ├── services/   # Core Logic (ResumeParser, SemanticMatcher, CareerAssistant)
+│   │   └── ml/         # AI Knowledge (Skill Ontology, Vector Engine)
+│   └── main.py         # App Entry Point (Middleware & Error Handlers)
 ├── frontend/           # React + Tailwind Dashboard
 │   ├── src/
-│   │   ├── pages/      # Candidate & Recruiter Views
-│   │   └── components/ # UI Atoms
+│   │   ├── pages/      # Candidate & Recruiter Dashboards
+│   │   └── components/ # UI Atoms & Visualizations
 └── README.md           # Documentation
 ```
 
----
-
-**Developed with Precision as a Career AI Assistant.** 🚀
+**Built with Precision to Bridge the Gap Between Talent and Opportunity.** 🚀
