@@ -60,15 +60,14 @@ const CandidateDashboard = () => {
         try {
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('job_description', jdText);
 
-            const parseRes = await axios.post(`${API_BASE}/resumes/parse`, formData);
-            const jobRes = await axios.post(`${API_BASE}/jobs/analyze`, { description: jdText });
-            const matchRes = await axios.post(`${API_BASE}/matches/`, {
-                resume_data: parseRes.data,
-                job_data: jobRes.data
+            // High-Speed Unified API Call (Consolidates parsing, JD analysis, and matching)
+            const response = await axios.post(`${API_BASE}/matches/analyze`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            setResult(matchRes.data);
+            setResult(response.data);
         } catch (err: any) {
             console.error("Match Error:", err);
             const msg = err.response?.data?.detail || "AI check failed. Please make sure the server is running.";
