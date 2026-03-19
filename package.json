@@ -1,0 +1,12 @@
+{
+  "name": "ai-resume-screener-monorepo",
+  "version": "1.0.0",
+  "scripts": {
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd backend && pip install -r requirements.txt",
+    "build": "cd frontend && npm install && npm run build"
+  },
+  "dependencies": {
+    "vite": "^6.0.0"
+  }
+}
