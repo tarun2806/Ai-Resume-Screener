@@ -120,21 +120,11 @@ async def unified_analyze_endpoint(
         # 1. Initialize Processor
         processor = AdvancedNLPProcessor()
         
-        # 2. Extract Text & Parse Resume
+        # 2. Extract Text (Corrected: Passing bytes & filename)
         from app.utils.parser import extract_text
-        import tempfile
-        import os
         
-        suffix = os.path.splitext(file.filename)[1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
-            
-        try:
-            resume_text = extract_text(tmp_path)
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        file_bytes = await file.read()
+        resume_text = extract_text(file_bytes, file.filename)
                 
         # 3. Process Concurrently (Logic reuse)
         resume_data = processor.process_resume(resume_text)
