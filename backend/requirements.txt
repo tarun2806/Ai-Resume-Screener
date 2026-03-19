@@ -12,3 +12,4 @@ pandas
 python-dotenv
 python-magic
 jinja2
+slowapi
