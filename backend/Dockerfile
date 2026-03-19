@@ -27,5 +27,5 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the application
-# Use 4 workers for production efficiency
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use sh -c to expand the $PORT variable from the environment
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
