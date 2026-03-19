@@ -30,7 +30,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # 🚦 Middleware: CORS & Timing
 # In production, specify your Vercel URL in an environment variable `ALLOWED_ORIGINS`
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [o.strip().rstrip("/") for o in raw_origins.split(",")]
+
+# Always allow common local ports for easier testing
+if "*" not in allowed_origins:
+    allowed_origins.extend(["http://localhost:5173", "http://127.0.0.1:5173"])
 
 app.add_middleware(
     CORSMiddleware,
