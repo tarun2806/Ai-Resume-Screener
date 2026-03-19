@@ -40,7 +40,7 @@ if "*" not in allowed_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=False, # Set to False for wildcard support
     allow_methods=["*"],
     allow_headers=["*"],
 )
