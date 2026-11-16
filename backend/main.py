@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import os
 import time
 import uvicorn
 
@@ -8,6 +9,37 @@ import uvicorn
 from app.api.resumes import router as resumes_router
 from app.api.jobs import router as jobs_router
 from app.api.matches import router as matches_router
+from app.api.auth import router as auth_router
+from app.api.ats import router as ats_router
+from app.db import init_db
+
+init_db()
+
+
+def _seed_admin():
+    """Create an admin user from env vars if provided and none exists."""
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    if not admin_email or not admin_password:
+        return
+    from app.db import SessionLocal, User
+    from app.auth import hash_password
+
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter(User.email == admin_email.lower()).first():
+            db.add(User(
+                email=admin_email.lower(),
+                password_hash=hash_password(admin_password),
+                name="Admin",
+                role="admin",
+            ))
+            db.commit()
+    finally:
+        db.close()
+
+
+_seed_admin()
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -18,24 +50,20 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-import os
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from app.ratelimit import limiter
 from slowapi.errors import RateLimitExceeded
-
-# 🛡️ Initialize Limiter (5 requests per minute per IP for sensitive endpoints)
-limiter = Limiter(key_func=get_remote_address)
+from slowapi import _rate_limit_exceeded_handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # 🚦 Middleware: CORS & Timing
-# In production, specify your Vercel URL in an environment variable `ALLOWED_ORIGINS`
-raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
-allowed_origins = [o.strip().rstrip("/") for o in raw_origins.split(",")]
-
-# Always allow common local ports for easier testing
-if "*" not in allowed_origins:
-    allowed_origins.extend(["http://localhost:5173", "http://127.0.0.1:5173"])
+# In production, set ALLOWED_ORIGINS to your frontend origin(s), comma-separated.
+# Fail closed: when unset we only allow local development origins.
+raw_origins = os.getenv("ALLOWED_ORIGINS")
+if raw_origins:
+    allowed_origins = [o.strip().rstrip("/") for o in raw_origins.split(",") if o.strip()]
+else:
+    allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,6 +79,9 @@ async def add_process_time_header(request: Request, call_next):
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
 # 🚨 Global Error Handling
@@ -63,15 +94,19 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
+    import logging
+    logging.getLogger("ai-screenx").exception("Unhandled error: %s", exc)
     return JSONResponse(
         status_code=500,
-        content={"error": True, "message": f"An unexpected error occurred: {str(exc)}", "type": "InternalServerError"}
+        content={"error": True, "message": "An unexpected error occurred", "type": "InternalServerError"}
     )
 
 # 🛣 Routes
 app.include_router(resumes_router, prefix="/api/v1/resumes", tags=["Resumes"])
 app.include_router(jobs_router, prefix="/api/v1/jobs", tags=["Jobs"])
 app.include_router(matches_router, prefix="/api/v1/matches", tags=["Matching Engine"])
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(ats_router, prefix="/api/v1/ats", tags=["ATS"])
 
 @app.get("/", tags=["Health"])
 async def health_check():

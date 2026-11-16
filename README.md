@@ -42,10 +42,10 @@ The system acts as a mentor by generating:
 ## 📐 System Architecture
 
 ### **Backend (Python / FastAPI)**
-- **Orchestration**: A unified asynchronous pipeline that processes resumes and job descriptions concurrently using `asyncio` for maximum speed.
-- **NLP Processing**: Built with **SpaCy** and custom rule-based heuristics for high-speed text extraction.
-- **Semantic Engine**: Designed for **Sentence-BERT (SBERT)** integration to handle high-dimensional vector embeddings and cosine similarity.
-- **Vector Search**: Integrated with **FAISS** for ultra-low-latency similarity search across large datasets.
+- **Pipeline**: Resume → text extraction (PDF/DOCX) → structured parsing → skill extraction → JD analysis → deterministic weighted scoring → explainable results.
+- **Skill Extraction**: Deterministic canonical skill vocabulary (~150 skills) with alias normalization, plus a domain skill ontology for inference and partial credit.
+- **Semantic Engine**: TF-IDF cosine similarity (scikit-learn) between resume and job description text — deterministic, no external model downloads.
+- **Persistence & Auth**: SQLite (SQLAlchemy) with JWT auth, PBKDF2 password hashing, and role-based access (candidate / recruiter / admin).
 
 ### **Frontend (React / TypeScript)**
 - **Modern UI**: Styled with **Tailwind CSS** for an "Enterprise SOC Dashboard" aesthetic.

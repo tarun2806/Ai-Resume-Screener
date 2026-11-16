@@ -7,7 +7,6 @@ WORKDIR /app
 # Install system dependencies needed for PyMuPDF and other NLP libs
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container
@@ -16,9 +15,6 @@ COPY requirements.txt .
 # Install Python dependencies
 # Note: We use --no-cache-dir to keep the image size small
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Download the SpaCy model (Small model for production efficiency)
-RUN python -m spacy download en_core_web_md
 
 # Copy the rest of the application code
 COPY . .

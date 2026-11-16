@@ -1,178 +1,117 @@
-from fastapi import APIRouter, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any
+
+from app.services.analysis import run_analysis
 from app.services.semantic_matcher import SemanticMatcher
 from app.services.career_assistant import CareerAssistant
 from app.services.nlp_processor import AdvancedNLPProcessor
-import json
+from app.utils.parser import extract_text
+from app.utils.uploads import read_and_validate, UploadValidationError
+from app.ratelimit import limiter
 
 router = APIRouter()
 matcher = SemanticMatcher()
 assistant = CareerAssistant()
+processor = AdvancedNLPProcessor()
+
 
 class MatchRequest(BaseModel):
     resume_data: Dict[str, Any]
     job_data: Dict[str, Any]
 
+
 @router.post("/")
 async def calculate_match(request: MatchRequest):
     """
-    Main matching endpoint called by the frontend.
-    Computes a deep semantic match between parsed resume and job data.
+    Score a match from already-parsed resume/job payloads.
     """
     try:
-        # 1. Use SemanticMatcher (already built with expert mocks if env lacked ML)
-        # Prepare data for SemanticMatcher
         resume_info = {
             "name": request.resume_data.get("name", "Candidate"),
             "raw_text": request.resume_data.get("raw_text", ""),
             "skills": request.resume_data.get("skills_detected", []),
-            "experience_years": request.resume_data.get("expert_data", {}).get("experience", {}).get("total_years", 5)
+            "experience_years": request.resume_data.get("expert_data", {})
+            .get("experience", {})
+            .get("total_years"),
         }
-        
         jd_info = {
             "raw_text": request.job_data.get("raw_text", ""),
             "required_skills": request.job_data.get("all_skills_flat", []),
-            "min_years_experience": 0
+            "min_years_experience": request.job_data.get("min_years_experience") or 0,
         }
-        
-        # 2. Score Match
         match_result = matcher.score_candidate(resume_info, jd_info)
-        
-        # 3. Generate Feedback/Suggestions
+
         feedback = assistant.generate_feedback(
             resume_data=request.resume_data,
             jd_data=request.job_data,
-            current_score=match_result["final_score"]
+            current_score=match_result["final_score"],
         )
-        
-        # 4. Map to Frontend's expected structure
-        # The frontend expects these exact keys:
-        # overall_score, breakdown, explanation, verdict, suggestions,
-        # categorized_skills, matched_skills, partial_matches
-        
-        # Heuristic for verdict
-        score = match_result["final_score"]
-        if score >= 85: verdict = "Excellent Match"
-        elif score >= 70: verdict = "Strong Growth Potential"
-        elif score >= 50: verdict = "Good Foundational Match"
-        else: verdict = "Needs Improvement"
-        
-        # Heuristic for explanation
-        if score >= 75: 
-            explanation = "Your skills are well-aligned with the core requirements of this role."
-        elif score >= 50:
-            explanation = "You have a solid base, but some key technical gaps were identified."
-        else:
-            explanation = "Major skill gaps detected. Consider following the AI suggestions below."
 
-        # Map suggestions to frontend tip/impact format
-        fe_suggestions = []
-        for plan_item in feedback["improvement_plan"][:4]:
-            fe_suggestions.append({
-                "tip": plan_item["suggestion"],
-                "impact": plan_item["estimated_score_increase"]
-            })
-            
-        # Ensure categorized_skills is present (already in jd_data)
-        cat_skills = request.job_data.get("categorized_skills", {"domain": [], "tools": [], "soft": []})
-        
-        # Matched/Partial skills (using set logic for quick lookup)
-        res_skills_set = set(s.lower() for s in resume_info["skills"])
-        # We also need 'partial_matches' for the UI 'Sparkles' icon
-        # For demo, let's treat anything that is in both as 'matched' 
-        # and anything semantically similar as 'partial'.
-        matched = list(res_skills_set.intersection(set(s.lower() for s in jd_info["required_skills"])))
-        # Map back to original name for UI
-        matched_explicit = [s for s in jd_info["required_skills"] if s.lower() in res_skills_set]
-        
+        score = match_result["final_score"]
+        verdict = (
+            "Excellent Match" if score >= 85
+            else "Strong Growth Potential" if score >= 70
+            else "Good Foundational Match" if score >= 50
+            else "Needs Improvement"
+        )
+
+        res_canon = {s.lower() for s in resume_info["skills"]}
+        matched_explicit = [
+            s for s in jd_info["required_skills"] if s.lower() in res_canon
+        ]
+
         return {
             "overall_score": score,
             "breakdown": {
                 "skill_match": match_result["breakdown"]["skill_overlap"],
                 "experience_relevance": match_result["breakdown"]["experience_fit"],
                 "semantic_alignment": match_result["breakdown"]["semantic_similarity"],
-                "resume_quality": 100.0 # Default point for formatting
+                "resume_quality": 100.0,
             },
-            "explanation": explanation,
+            "explanation": f"Match computed deterministically. Verdict: {verdict}.",
             "verdict": verdict,
-            "suggestions": fe_suggestions,
-            "categorized_skills": cat_skills,
+            "suggestions": [
+                {"tip": p["suggestion"], "impact": p["estimated_score_increase"]}
+                for p in feedback["improvement_plan"][:4]
+            ],
+            "categorized_skills": request.job_data.get(
+                "categorized_skills", {"domain": [], "tools": [], "soft": []}
+            ),
             "matched_skills": matched_explicit,
-            "partial_matches": [] # Can be populated by semantic fuzzy check if needed
+            "partial_matches": [],
         }
-        
-    except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to compute match")
+
 
 @router.post("/analyze")
+@limiter.limit("30/minute")
 async def unified_analyze_endpoint(
+    request: Request,
     file: UploadFile = File(...),
-    job_description: str = Form(...)
+    job_description: str = Form(...),
 ):
     """
-    Expert Orchestrator: Combines parsing, JD analysis, and matching in one call.
-    Dramatically reduces network overhead and latency.
+    Unified pipeline: upload resume + paste JD -> full analysis in one call.
     """
-    try:
-        # 1. Initialize Processor
-        processor = AdvancedNLPProcessor()
-        
-        # 2. Extract Text (Corrected: Passing bytes & filename)
-        from app.utils.parser import extract_text
-        
-        file_bytes = await file.read()
-        resume_text = extract_text(file_bytes, file.filename)
-                
-        # 3. Process Concurrently (Logic reuse)
-        resume_data = processor.process_resume(resume_text)
-        job_data = processor.process_jd(job_description)
-        
-        # 4. Score & Feedback
-        match_result = matcher.score_candidate({
-            "name": resume_data.get("name", "Candidate"),
-            "raw_text": resume_data.get("raw_text", ""),
-            "skills": resume_data.get("skills_detected", []),
-            "experience_years": resume_data.get("expert_data", {}).get("experience", {}).get("total_years", 5)
-        }, {
-            "raw_text": job_data.get("raw_text", ""),
-            "required_skills": job_data.get("all_skills_flat", []),
-            "min_years_experience": 0
-        })
-        
-        feedback = assistant.generate_feedback(
-            resume_data=resume_data,
-            jd_data=job_data,
-            current_score=match_result["final_score"]
-        )
-        
-        # 5. Map to Response (Same structure as root endpoint)
-        fe_suggestions = [{"tip": p["suggestion"], "impact": p["estimated_score_increase"]} for p in feedback["improvement_plan"][:4]]
-        
-        score = match_result["final_score"]
-        verdict = "Excellent Match" if score >= 85 else "Strong Growth Potential" if score >= 70 else "Good Foundational Match" if score >= 50 else "Needs Improvement"
-        
-        res_skills_set = set(s.lower() for s in resume_data.get("skills_detected", []))
-        matched_explicit = [s for s in job_data.get("all_skills_flat", []) if s.lower() in res_skills_set]
+    if len(job_description) < 50:
+        raise HTTPException(status_code=400, detail="Job description too short (min 50 chars)")
 
-        return {
-            "overall_score": score,
-            "breakdown": {
-                "skill_match": match_result["breakdown"]["skill_overlap"],
-                "experience_relevance": match_result["breakdown"]["experience_fit"],
-                "semantic_alignment": match_result["breakdown"]["semantic_similarity"],
-                "resume_quality": 100.0
-            },
-            "explanation": "High-Speed Analysis completed using AI ScreenX Unified Engine.",
-            "verdict": verdict,
-            "suggestions": fe_suggestions,
-            "categorized_skills": job_data.get("categorized_skills", {}),
-            "matched_skills": matched_explicit,
-            "partial_matches": []
-        }
-    except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+    try:
+        content = await read_and_validate(file)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        resume_text = extract_text(content, file.filename or "")
+        if not resume_text or len(resume_text.strip()) < 50:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not extract enough text from the resume file",
+            )
+        return run_analysis(resume_text, job_description)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to parse resume file")
