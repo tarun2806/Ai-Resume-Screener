@@ -2,14 +2,37 @@ import os
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, Integer, String, Float, Text, DateTime, ForeignKey, create_engine
+    Column, Integer, String, Float, Text, DateTime, ForeignKey, create_engine, event
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'ai_screenx.db')}")
+from app.config import settings
 
-engine = create_engine(DB_PATH, connect_args={"check_same_thread": False})
+DB_PATH = settings.database_url
+
+def _is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
+if _is_sqlite(DB_PATH):
+    engine = create_engine(DB_PATH, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+else:
+    engine = create_engine(
+        DB_PATH,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

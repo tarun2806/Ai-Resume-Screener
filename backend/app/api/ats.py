@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+from datetime import timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -376,6 +377,60 @@ async def my_applications(
     return {"applications": [_app_summary(a) for a in apps]}
 
 
+@router.get("/me/export")
+async def export_my_data(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """GDPR-style data export: everything we hold about this user."""
+    apps = (
+        db.query(Application)
+        .filter(Application.candidate_id == user.id)
+        .order_by(Application.created_at.desc())
+        .all()
+    )
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "applications": [
+            {
+                **_app_summary(a),
+                "resume_text": a.resume_text,
+                "match_result": json.loads(a.match_result or "{}"),
+                "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+            }
+            for a in apps
+        ],
+    }
+
+
+@router.delete("/me")
+async def delete_my_account(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("candidate")),
+):
+    """Permanently delete the account and all associated candidate data.
+    Recruiter/admin accounts must be deleted by an administrator to avoid
+    orphaning jobs and applicant records."""
+    db.query(Application).filter(Application.candidate_id == user.id).delete()
+    db.delete(user)
+    db.commit()
+    return {"deleted": True}
+
+
+def _csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in CSV cells."""
+    s = "" if value is None else str(value)
+    if s[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 # ---------- export & analytics ----------
 
 @router.get("/jobs/{job_id}/export.csv")
@@ -401,12 +456,12 @@ async def export_csv(
     for i, a in enumerate(apps, 1):
         parsed = json.loads(a.parsed_profile or "{}")
         writer.writerow([
-            i, a.candidate_name, a.candidate_email, a.score, a.status,
-            "; ".join(parsed.get("skills", [])),
-            "; ".join(parsed.get("matched_skills", [])),
-            "; ".join(parsed.get("missing_skills", [])),
+            i, _csv_safe(a.candidate_name), _csv_safe(a.candidate_email), a.score, a.status,
+            _csv_safe("; ".join(parsed.get("skills", []))),
+            _csv_safe("; ".join(parsed.get("matched_skills", []))),
+            _csv_safe("; ".join(parsed.get("missing_skills", []))),
             parsed.get("experience_years"), parsed.get("confidence"),
-            a.recruiter_notes,
+            _csv_safe(a.recruiter_notes),
             a.created_at.isoformat() if a.created_at else "",
         ])
     buf.seek(0)
@@ -475,6 +530,35 @@ async def list_users(
             for u in users
         ]
     }
+
+
+@router.post("/admin/maintenance/purge-resume-text")
+async def purge_expired_resume_text(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("admin")),
+):
+    """
+    Retention control: blank out stored resume text / match payloads for
+    applications older than RESUME_RETENTION_DAYS (default 365).
+    Scores, statuses and notes are preserved; raw PII is removed.
+    """
+    from app.config import settings
+
+    days = settings.resume_retention_days
+    if days <= 0:
+        return {"purged": 0, "retention_days": days, "note": "retention disabled"}
+
+    cutoff = utcnow() - timedelta(days=days)
+    stale = db.query(Application).filter(Application.created_at < cutoff).all()
+    purged = 0
+    for a in stale:
+        if a.resume_text or a.match_result not in ("", "{}"):
+            a.resume_text = ""
+            a.match_result = "{}"
+            a.parsed_profile = "{}"
+            purged += 1
+    db.commit()
+    return {"purged": purged, "retention_days": days}
 
 
 @router.patch("/admin/users/{user_id}/role")

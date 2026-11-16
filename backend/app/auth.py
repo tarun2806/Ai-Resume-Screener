@@ -1,8 +1,6 @@
 import hashlib
 import hmac
-import os
 import secrets
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
@@ -10,11 +8,12 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.config import resolve_jwt_secret, settings
 from app.db import get_db, User
 
-SECRET_KEY = os.getenv("JWT_SECRET", "dev-insecure-secret-change-me")
+SECRET_KEY = resolve_jwt_secret()
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60" * 24))
+TOKEN_EXPIRE_MINUTES = settings.jwt_expire_minutes
 
 bearer = HTTPBearer(auto_error=False)
 

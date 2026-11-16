@@ -30,3 +30,5 @@ v1-AI-Resume-Screener/
 
 # Local database
 *.db
+*.db-shm
+*.db-wal
