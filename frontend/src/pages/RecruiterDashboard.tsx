@@ -339,9 +339,12 @@ export default function RecruiterDashboard({ user }: { user: User }) {
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [compareData, setCompareData] = useState<CompareResult | null>(null);
   const [insights, setInsights] = useState<JobInsights | null>(null);
+  const [asyncBatch, setAsyncBatch] = useState<{ jobId: number; batchId: string } | null>(null);
+  const [batchCounts, setBatchCounts] = useState<Record<string, number> | null>(null);
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const asyncFileRef = useRef<HTMLInputElement>(null);
 
   const loadOrgs = useCallback(async () => {
     try {
@@ -406,6 +409,27 @@ export default function RecruiterDashboard({ user }: { user: User }) {
     }
   }, [selectedJob]);
 
+  // Poll batch progress + per-app statuses while anything is in flight
+  const hasInflight = apps.some((a) => ['queued', 'processing', 'retry_wait'].includes(a.processing_status || ''));
+  useEffect(() => {
+    if (!asyncBatch && !hasInflight) return;
+    const t = setInterval(async () => {
+      try {
+        if (asyncBatch) {
+          const prog = await atsApi.batchProcessing(asyncBatch.jobId, asyncBatch.batchId);
+          setBatchCounts(prog.counts);
+          const done = (prog.counts.completed || 0) + (prog.counts.failed || 0);
+          if (prog.total > 0 && done >= prog.total) {
+            setAsyncBatch(null);
+            setScreenMsg(`Batch finished: ${prog.counts.completed || 0} completed, ${prog.counts.failed || 0} failed.`);
+          }
+        }
+        if (selectedJob) await loadApps(selectedJob);
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(t);
+  }, [asyncBatch, hasInflight, selectedJob, loadApps]);
+
   const toggleCompare = (id: number) => {
     setCompareIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev);
     setCompareData(null);
@@ -439,6 +463,34 @@ export default function RecruiterDashboard({ user }: { user: User }) {
       setScreening(false);
       if (fileRef.current) fileRef.current.value = '';
     }
+  };
+
+  const onFilesAsync = async (files: FileList | null) => {
+    if (!files || !selectedJob) return;
+    setScreening(true); setScreenMsg(null); setScreenErr(null);
+    try {
+      const res = await atsApi.screenAsync(selectedJob.id, Array.from(files));
+      const parts = [`Queued ${res.queued.length} resume(s) for background processing`];
+      if (res.skipped.length) parts.push(`${res.skipped.length} duplicate(s) skipped`);
+      if (res.errors.length) parts.push(`${res.errors.length} rejected`);
+      setScreenMsg(parts.join(' · '));
+      if (res.errors.length) setScreenErr(res.errors.map((e) => `${e.file}: ${e.error}`).join('\n'));
+      if (res.queued.length) setAsyncBatch({ jobId: selectedJob.id, batchId: res.batch_id });
+      await loadApps(selectedJob);
+    } catch (e) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      setScreenErr(ax.response?.data?.detail || 'Async screening failed');
+    } finally {
+      setScreening(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const retryApp = async (appId: number) => {
+    try {
+      await atsApi.retryProcessing(appId);
+      if (selectedJob) await loadApps(selectedJob);
+    } catch { /* ignore */ }
   };
 
   const exportCsv = async () => {
@@ -581,15 +633,28 @@ export default function RecruiterDashboard({ user }: { user: User }) {
                   <div className="flex items-center gap-2">
                     <button onClick={() => { setEditingJob(selectedJob); setShowJobForm(true); }} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white border border-white/10 rounded-lg">Edit</button>
                     <button onClick={exportCsv} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg flex items-center gap-1.5"><Download className="w-3 h-3" />CSV</button>
+                    <button onClick={() => asyncFileRef.current?.click()} disabled={screening} className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-violet-300 hover:text-violet-200 border border-violet-500/30 rounded-lg flex items-center gap-1.5" title="Queue resumes for background AI processing">
+                      {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />} Queue
+                    </button>
                     <button onClick={() => fileRef.current?.click()} disabled={screening} className="btn-glow px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                       {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload Resumes
                     </button>
-                    <input ref={fileRef} type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFiles(e.target.files)} />
+                    <input ref={fileRef} data-testid="sync-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFiles(e.target.files)} />
+                    <input ref={asyncFileRef} data-testid="async-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFilesAsync(e.target.files)} />
                   </div>
                 </div>
 
                 {screenMsg && <p className="text-xs text-emerald-400 flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />{screenMsg}</p>}
                 {screenErr && <p className="text-xs text-red-400 whitespace-pre-line">{screenErr}</p>}
+                {batchCounts && (
+                  <div className="flex flex-wrap items-center gap-3 text-[10px]">
+                    {Object.entries(batchCounts).map(([st, n]) => (
+                      <span key={st} className={`px-2 py-0.5 rounded-full border font-bold ${st === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : st === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'}`}>
+                        {st}: {n}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2">
                   <select className="bg-white/5 border border-white/10 rounded-lg text-xs px-3 py-2 text-slate-300" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
@@ -646,7 +711,15 @@ export default function RecruiterDashboard({ user }: { user: User }) {
                           <p className="text-sm font-bold text-white truncate">{a.candidate_name || 'Unknown'}</p>
                           <p className="text-[10px] text-slate-500 truncate">{a.candidate_email} · {a.resume_filename}</p>
                         </div>
-                        <ScorePill score={a.score} />
+                        {a.processing_status && a.processing_status !== 'completed' && a.processing_status !== 'none' && (
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${a.processing_status === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'}`}>
+                            {a.processing_status === 'retry_wait' ? 'retrying' : a.processing_status}
+                          </span>
+                        )}
+                        {a.processing_status === 'failed' && (
+                          <button onClick={() => retryApp(a.id)} className="text-[9px] font-bold text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded px-1.5 py-0.5">Retry</button>
+                        )}
+                        <ScorePill score={a.score ?? 0} />
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${statusColor[a.status] || statusColor.new}`}>{a.status}</span>
                         <select
                           className="bg-white/5 border border-white/10 rounded-lg text-[10px] px-2 py-1.5 text-slate-300"

@@ -130,6 +130,7 @@ export interface ApplicationSummary {
   matched_skills: string[];
   missing_skills: string[];
   confidence: number | null;
+  processing_status?: string;
   created_at: string | null;
 }
 
@@ -217,6 +218,23 @@ export const atsApi = {
   compare: (jobId: number, ids: number[]) =>
     api.get<CompareResult>(`/ats/jobs/${jobId}/compare`, { params: { ids: ids.join(',') } }).then((r) => r.data),
   insights: (jobId: number) => api.get<JobInsights>(`/ats/jobs/${jobId}/insights`).then((r) => r.data),
+  screenAsync: (jobId: number, files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f));
+    return api.post<{ batch_id: string; queued: { file: string; application_id: number; status: string }[]; skipped: { file: string; reason: string }[]; errors: { file: string; error: string }[] }>(
+      `/ats/jobs/${jobId}/screen/async`, fd
+    ).then((r) => r.data);
+  },
+  batchProcessing: (jobId: number, batchId?: string) =>
+    api.get<{ job_id: number; batch_id: string | null; counts: Record<string, number>; total: number; items: { id: number; application_id: number; status: string; attempt_count: number; last_error_code: string | null }[] }>(
+      `/ats/jobs/${jobId}/processing`, { params: batchId ? { batch_id: batchId } : {} }
+    ).then((r) => r.data),
+  appProcessing: (appId: number) =>
+    api.get<{ application_id: number; status: string; processing: { status: string; attempt_count: number; last_error_code: string | null } | null }>(
+      `/ats/applications/${appId}/processing`
+    ).then((r) => r.data),
+  retryProcessing: (appId: number) =>
+    api.post<{ application_id: number; status: string }>(`/ats/applications/${appId}/processing/retry`).then((r) => r.data),
   listUsers: () => api.get<{ users: User[] }>('/ats/admin/users').then((r) => r.data.users),
   setUserRole: (id: number, role: string) =>
     api.patch<{ id: number; role: string }>(`/ats/admin/users/${id}/role`, { role }).then((r) => r.data),

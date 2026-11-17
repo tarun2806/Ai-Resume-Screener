@@ -23,7 +23,7 @@ test.describe('Recruiter intelligence workflow', () => {
 
     // Upload a resume through the real file input
     const docxPath = path.join(import.meta.dirname, 'fixtures', 'strong.docx');
-    await page.locator('input[type="file"][accept=".pdf,.docx"]').setInputFiles(docxPath);
+    await page.getByTestId('sync-upload').setInputFiles(docxPath);
     await expect(page.getByText(/Screened \d+ resume/)).toBeVisible({ timeout: 30_000 });
 
     // Insights strip renders funnel data
