@@ -5,6 +5,7 @@ import {
     Cpu, BrainCircuit, Zap, Layers, BarChart3, ShieldCheck, Clock, Flame
 } from 'lucide-react';
 import axios from 'axios';
+import { usePublicConfig } from '../hooks/usePublicConfig';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
@@ -70,6 +71,7 @@ const StatBar = ({ label, value, color, icon: Icon }: { label: string; value: nu
 
 /* ─── Main Dashboard ─── */
 const CandidateDashboard = () => {
+    const { uploads_enabled: uploadsEnabled } = usePublicConfig();
     const [file, setFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,6 +120,20 @@ const CandidateDashboard = () => {
         if (s >= 40) return { text: 'Needs Work', color: '#8b5cf6', bg: 'from-violet-500/10 to-violet-500/5', icon: Target };
         return { text: 'Major Gaps', color: '#ef4444', bg: 'from-red-500/10 to-red-500/5', icon: AlertCircle };
     }, [result]);
+
+    if (!uploadsEnabled) {
+        return (
+            <div className="glass-panel p-12 text-center space-y-3 animate-slide-up">
+                <BrainCircuit className="w-10 h-10 text-slate-600 mx-auto" />
+                <h2 className="text-lg font-bold text-white">Resume analysis unavailable</h2>
+                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                    This public demo does not accept resume uploads. Explore the
+                    pre-loaded demo data from the recruiter dashboard instead —
+                    or check the Jobs tab to browse open positions.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8">

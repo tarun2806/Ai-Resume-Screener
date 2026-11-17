@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.utils.parser import extract_text
-from app.utils.uploads import read_and_validate, UploadValidationError
+from app.utils.uploads import read_and_validate, UploadValidationError, ensure_uploads_enabled
 
 router = APIRouter()
 processor = AdvancedNLPProcessor()
@@ -9,6 +9,7 @@ processor = AdvancedNLPProcessor()
 
 @router.post("/parse")
 async def parse_resume(file: UploadFile = File(...)):
+    ensure_uploads_enabled()
     try:
         content = await read_and_validate(file)
     except UploadValidationError as e:

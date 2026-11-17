@@ -7,6 +7,7 @@ import {
 import { atsApi, orgContext, orgsApi } from '../lib/api';
 import type { Org } from '../lib/api';
 import type { Analytics, ApplicationDetail, ApplicationSummary, CompareResult, Job, JobInsights, ScoreComponent, User } from '../lib/api';
+import { usePublicConfig } from '../hooks/usePublicConfig';
 
 const STATUSES = ['new', 'reviewed', 'shortlisted', 'rejected', 'interview'];
 
@@ -322,6 +323,7 @@ const CompareView = ({ data, onClose }: { data: CompareResult; onClose: () => vo
 
 /* ---------- Main dashboard ---------- */
 export default function RecruiterDashboard({ user }: { user: User }) {
+  const { uploads_enabled: uploadsEnabled } = usePublicConfig();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [apps, setApps] = useState<ApplicationSummary[]>([]);
@@ -633,14 +635,22 @@ export default function RecruiterDashboard({ user }: { user: User }) {
                   <div className="flex items-center gap-2">
                     <button onClick={() => { setEditingJob(selectedJob); setShowJobForm(true); }} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white border border-white/10 rounded-lg">Edit</button>
                     <button onClick={exportCsv} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-lg flex items-center gap-1.5"><Download className="w-3 h-3" />CSV</button>
-                    <button onClick={() => asyncFileRef.current?.click()} disabled={screening} className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-violet-300 hover:text-violet-200 border border-violet-500/30 rounded-lg flex items-center gap-1.5" title="Queue resumes for background AI processing">
-                      {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />} Queue
-                    </button>
-                    <button onClick={() => fileRef.current?.click()} disabled={screening} className="btn-glow px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
-                      {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload Resumes
-                    </button>
-                    <input ref={fileRef} data-testid="sync-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFiles(e.target.files)} />
-                    <input ref={asyncFileRef} data-testid="async-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFilesAsync(e.target.files)} />
+                    {uploadsEnabled ? (
+                      <>
+                        <button onClick={() => asyncFileRef.current?.click()} disabled={screening} className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-violet-300 hover:text-violet-200 border border-violet-500/30 rounded-lg flex items-center gap-1.5" title="Queue resumes for background AI processing">
+                          {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />} Queue
+                        </button>
+                        <button onClick={() => fileRef.current?.click()} disabled={screening} className="btn-glow px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          {screening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload Resumes
+                        </button>
+                        <input ref={fileRef} data-testid="sync-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFiles(e.target.files)} />
+                        <input ref={asyncFileRef} data-testid="async-upload" type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(e) => onFilesAsync(e.target.files)} />
+                      </>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-amber-400/80 border border-amber-500/20 rounded-lg px-3 py-2">
+                        Uploads disabled — demo data only
+                      </span>
+                    )}
                   </div>
                 </div>
 

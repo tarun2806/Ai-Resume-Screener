@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BrainCircuit, Briefcase, Upload, CheckCircle2, Clock, XCircle, Loader2, FileText } from 'lucide-react';
 import CandidateDashboard from './CandidateDashboard';
 import { atsApi } from '../lib/api';
+import { usePublicConfig } from '../hooks/usePublicConfig';
 import type { ApplicationSummary, Job } from '../lib/api';
 
 const statusColor: Record<string, string> = {
@@ -13,6 +14,7 @@ const statusColor: Record<string, string> = {
 };
 
 export default function CandidatePortal() {
+  const { uploads_enabled: uploadsEnabled } = usePublicConfig();
   const [tab, setTab] = useState<'analyze' | 'applications' | 'jobs'>('analyze');
   const [apps, setApps] = useState<ApplicationSummary[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -76,7 +78,7 @@ export default function CandidatePortal() {
           {loading ? <Loader2 className="w-6 h-6 animate-spin text-cyan-400 mx-auto" /> : jobs.length === 0 ? (
             <div className="glass-panel p-12 text-center text-slate-600 text-xs">No open positions right now.</div>
           ) : jobs.map((j) => (
-            <JobCard key={j.id} job={j} onApply={apply} />
+            <JobCard key={j.id} job={j} onApply={apply} uploadsEnabled={uploadsEnabled} />
           ))}
         </div>
       )}
@@ -110,7 +112,7 @@ export default function CandidatePortal() {
   );
 }
 
-function JobCard({ job, onApply }: { job: Job; onApply: (id: number, f: File) => void }) {
+function JobCard({ job, onApply, uploadsEnabled }: { job: Job; onApply: (id: number, f: File) => void; uploadsEnabled: boolean }) {
   const [busy, setBusy] = useState(false);
   return (
     <div className="glass-panel p-6 space-y-4">
@@ -128,20 +130,26 @@ function JobCard({ job, onApply }: { job: Job; onApply: (id: number, f: File) =>
       <div className="flex flex-wrap gap-1.5">
         {job.required_skills.slice(0, 10).map((s) => <span key={s} className="skill-tag text-[9px]"><Briefcase className="w-3 h-3" />{s}</span>)}
       </div>
-      <label className={`btn-glow inline-flex px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
-        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Upload className="w-3.5 h-3.5" /> Apply with Resume</>}
-        <input
-          type="file" accept=".pdf,.docx" className="hidden"
-          onChange={async (e) => {
-            const f = e.target.files?.[0];
-            if (!f) return;
-            setBusy(true);
-            await onApply(job.id, f);
-            setBusy(false);
-            e.target.value = '';
-          }}
-        />
-      </label>
+      {uploadsEnabled ? (
+        <label className={`btn-glow inline-flex px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Upload className="w-3.5 h-3.5" /> Apply with Resume</>}
+          <input
+            type="file" accept=".pdf,.docx" className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              setBusy(true);
+              await onApply(job.id, f);
+              setBusy(false);
+              e.target.value = '';
+            }}
+          />
+        </label>
+      ) : (
+        <span className="inline-flex px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-400/80 border border-amber-500/20 rounded-lg">
+          Applications closed — demo mode
+        </span>
+      )}
     </div>
   );
 }

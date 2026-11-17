@@ -43,3 +43,16 @@ async def read_and_validate(file) -> bytes:
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     validate_upload(file.filename or "", content)
     return content
+
+
+def ensure_uploads_enabled() -> None:
+    """Reject uploads when UPLOADS_ENABLED=false (public demo mode).
+    Raises fastapi.HTTPException 403."""
+    from fastapi import HTTPException
+    from app.config import settings
+
+    if not settings.uploads_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Resume uploads are disabled on this public demo deployment",
+        )

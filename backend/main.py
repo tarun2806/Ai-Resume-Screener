@@ -180,6 +180,15 @@ async def health_check():
     }
 
 
+@app.get("/api/v1/config", tags=["Config"])
+async def public_config():
+    """Public runtime flags consumed by the frontend (no secrets)."""
+    return {
+        "uploads_enabled": settings.uploads_enabled,
+        "demo_mode": not settings.uploads_enabled,
+    }
+
+
 @app.get("/health", tags=["Health"])
 async def health_deep():
     """Readiness probe — verifies database connectivity."""

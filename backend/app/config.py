@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     clamav_required: bool = os.getenv("CLAMAV_REQUIRED", "false").lower() == "true"
     clamav_timeout_seconds: float = float(os.getenv("CLAMAV_TIMEOUT_SECONDS", "10"))
     audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "730"))
+    # Public demo mode: when false, all resume-upload endpoints reject
+    # requests. Local Docker deployments leave this enabled.
+    uploads_enabled: bool = os.getenv("UPLOADS_ENABLED", "true").lower() != "false"
 
     @property
     def is_production(self) -> bool:

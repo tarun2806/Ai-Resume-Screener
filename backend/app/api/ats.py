@@ -27,7 +27,7 @@ from app.services.tenancy import (
     resolve_org,
 )
 from app.utils.parser import extract_text
-from app.utils.uploads import read_and_validate, UploadValidationError, MAX_UPLOAD_BYTES
+from app.utils.uploads import read_and_validate, UploadValidationError, MAX_UPLOAD_BYTES, ensure_uploads_enabled
 from app.ratelimit import limiter
 
 router = APIRouter()
@@ -249,6 +249,7 @@ async def screen_resumes(
 ):
     job = _get_job_or_404(db, job_id, user)
     require_job_write(db, user, job)
+    ensure_uploads_enabled()
     if len(files) > MAX_BULK_FILES:
         raise HTTPException(status_code=400, detail=f"Max {MAX_BULK_FILES} files per batch")
 
@@ -337,6 +338,7 @@ async def screen_resumes_async(
     Returns immediately with per-file queued application ids."""
     job = _get_job_or_404(db, job_id, user)
     require_job_write(db, user, job)
+    ensure_uploads_enabled()
     if len(files) > MAX_BULK_FILES:
         raise HTTPException(status_code=400, detail=f"Max {MAX_BULK_FILES} files per batch")
 
@@ -724,6 +726,7 @@ async def apply_to_job(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("candidate")),
 ):
+    ensure_uploads_enabled()
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job or job.status != "open":
         raise HTTPException(status_code=404, detail="Job not found or closed")

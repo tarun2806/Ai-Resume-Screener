@@ -39,6 +39,8 @@ services:
         sync: false
       - key: CLAMAV_REQUIRED
         value: "false" # no free clamd host — see deployment notes; uploads log scan errors
+      - key: UPLOADS_ENABLED
+        value: "false" # public demo: preloaded synthetic data only, no resume uploads
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD

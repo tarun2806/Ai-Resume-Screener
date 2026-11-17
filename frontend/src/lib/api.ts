@@ -239,3 +239,10 @@ export const atsApi = {
   setUserRole: (id: number, role: string) =>
     api.patch<{ id: number; role: string }>(`/ats/admin/users/${id}/role`, { role }).then((r) => r.data),
 };
+// ---------- public runtime config ----------
+export interface PublicConfig {
+  uploads_enabled: boolean;
+  demo_mode: boolean;
+}
+export const getPublicConfig = () =>
+  api.get<PublicConfig>('/config').then((r) => r.data);

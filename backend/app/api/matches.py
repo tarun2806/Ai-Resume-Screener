@@ -7,7 +7,7 @@ from app.services.semantic_matcher import SemanticMatcher
 from app.services.career_assistant import CareerAssistant
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.utils.parser import extract_text
-from app.utils.uploads import read_and_validate, UploadValidationError
+from app.utils.uploads import read_and_validate, UploadValidationError, ensure_uploads_enabled
 from app.ratelimit import limiter
 
 router = APIRouter()
@@ -95,6 +95,7 @@ async def unified_analyze_endpoint(
     """
     Unified pipeline: upload resume + paste JD -> full analysis in one call.
     """
+    ensure_uploads_enabled()
     if len(job_description) < 50:
         raise HTTPException(status_code=400, detail="Job description too short (min 50 chars)")
 

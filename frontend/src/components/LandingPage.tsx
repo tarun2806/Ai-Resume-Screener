@@ -150,9 +150,10 @@ export default function LandingPage({ onAuth, onEnterAuth }: Props) {
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500/70" />
           <p>
             This is a public demo running on free-tier infrastructure. All demo
-            data is synthetic — no real resumes or personal information. The demo
-            service may sleep after periods of inactivity and take ~1 minute to
-            wake. Malware scanning runs in optional mode on this deployment.
+            data is synthetic — no real resumes or personal information. Resume
+            uploads are disabled; explore the pre-loaded screening results
+            instead. The demo service may sleep after periods of inactivity and
+            take ~1 minute to wake.
           </p>
         </div>
       </section>
