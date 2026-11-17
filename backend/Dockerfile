@@ -1,27 +1,24 @@
-# Use an official Python runtime as a parent image
-FROM python:3.10-slim
+# AI ScreenX API / worker image
+FROM python:3.12-slim
 
-# Set the working directory in the container
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Install system dependencies needed for PyMuPDF and other NLP libs
-RUN apt-get update && apt-get install -y \
-    build-essential \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
 COPY requirements.txt .
-
-# Install Python dependencies
-# Note: We use --no-cache-dir to keep the image size small
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
 COPY . .
 
-# Expose the port the app runs on (Railway/Render usually provide $PORT)
+RUN useradd -r -u 10001 appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8000
 
-# Command to run the application
-# Use sh -c to expand the $PORT variable from the environment
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Default: API server. Worker service overrides with: python -m app.worker
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

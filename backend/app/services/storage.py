@@ -109,6 +109,23 @@ class S3Storage(StorageBackend):
             kwargs["aws_access_key_id"] = settings.s3_access_key
             kwargs["aws_secret_access_key"] = settings.s3_secret_key
         self._client = boto3.client("s3", **kwargs)
+        self._ensure_bucket()
+
+    def _ensure_bucket(self) -> None:
+        """Create the private bucket if absent (idempotent bootstrap)."""
+        try:
+            self._client.head_bucket(Bucket=self.bucket)
+        except Exception:
+            try:
+                kwargs = {"Bucket": self.bucket}
+                if settings.s3_region not in ("us-east-1", "aws-global"):
+                    kwargs["CreateBucketConfiguration"] = {
+                        "LocationConstraint": settings.s3_region}
+                self._client.create_bucket(**kwargs)
+            except Exception as e:
+                # Race with another instance or already-owned bucket is fine.
+                if "BucketAlready" not in str(e) and "AlreadyOwned" not in str(e):
+                    raise StorageError("Could not provision storage bucket") from e
 
     def put(self, key: str, content: bytes) -> None:
         self._client.put_object(

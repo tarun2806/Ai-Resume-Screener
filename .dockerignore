@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.venv
+**/venv
+**/__pycache__
+**/.pytest_cache
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+backend/data
+data
+.git
+frontend/test-results
+frontend/playwright-report
+archive
+hf_deploy
