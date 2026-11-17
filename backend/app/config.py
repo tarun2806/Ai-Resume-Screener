@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     processing_max_attempts: int = int(os.getenv("PROCESSING_MAX_ATTEMPTS", "3"))
     processing_retry_base_seconds: int = int(os.getenv("PROCESSING_RETRY_BASE_SECONDS", "30"))
     # Malware scanning (clamd INSTREAM). Unset host = scanning disabled.
+    clamav_host: str = os.getenv("CLAMAV_HOST", "")
+    clamav_port: int = int(os.getenv("CLAMAV_PORT", "3310"))
+    clamav_required: bool = os.getenv("CLAMAV_REQUIRED", "false").lower() == "true"
+    clamav_timeout_seconds: float = float(os.getenv("CLAMAV_TIMEOUT_SECONDS", "10"))
     audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "730"))
 
     @property

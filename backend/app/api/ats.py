@@ -16,6 +16,7 @@ from app.services.analysis import run_analysis, extract_min_years
 from app.services.storage import generate_key, get_storage
 from app.services import processing as proc
 from app.services.audit import record as audit_record
+from app.services.scanner import MalwareDetected, ScannerUnavailable, scan_bytes, scan_counters
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.services.tenancy import (
     get_org_job_or_404,
@@ -115,6 +116,23 @@ def _screen_one(file_bytes: bytes, filename: str, job: Job) -> dict:
     result = run_analysis(text, job.description)
     result["_resume_text"] = text
     return result
+
+
+def _scan_or_raise(content: bytes, filename: str, db: Session, user: User, job: Job) -> str | None:
+    """Run malware scan. Returns error string or None when clean/skipped.
+    Raises HTTPException when scanner is required but unavailable."""
+    try:
+        result = scan_bytes(content)
+    except MalwareDetected as e:
+        audit_record(db, action="malware_detected", actor=user,
+                     resource_type="job", resource_id=job.id,
+                     outcome="denied",
+                     metadata={"file": (filename or "")[:120], "signature": e.signature})
+        db.commit()
+        return "File rejected by malware scan"
+    except ScannerUnavailable:
+        raise HTTPException(status_code=503, detail="Malware scanner unavailable")
+    return None
 
 
 def _store_resume(org_id: int | None, content: bytes, filename: str) -> tuple[str, str]:
@@ -240,6 +258,10 @@ async def screen_resumes(
     for f in files:
         try:
             content = await read_and_validate(f)
+            scan_err = _scan_or_raise(content, f.filename or "", db, user, job)
+            if scan_err:
+                errors.append({"file": f.filename, "error": scan_err})
+                continue
             chash = hashlib.sha256(content).hexdigest()
             dup = db.query(Application).filter(
                 Application.job_id == job.id, Application.content_hash == chash).first()
@@ -330,6 +352,13 @@ async def screen_resumes_async(
             continue
         except Exception:
             errors.append({"file": f.filename, "error": "Upload failed"})
+            continue
+        try:
+            scan_err = _scan_or_raise(content, f.filename or "", db, user, job)
+        except HTTPException as e:
+            raise e
+        if scan_err:
+            errors.append({"file": f.filename, "error": scan_err})
             continue
 
         chash = hashlib.sha256(content).hexdigest()
@@ -711,6 +740,9 @@ async def apply_to_job(
         content = await read_and_validate(file)
     except UploadValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    scan_err = _scan_or_raise(content, file.filename or "", db, user, job)
+    if scan_err:
+        raise HTTPException(status_code=400, detail=scan_err)
     try:
         analysis = _screen_one(content, file.filename or "resume", job)
     except UploadValidationError as e:
@@ -1067,7 +1099,9 @@ async def admin_metrics(
         "queue": {"stale_processing": stale},
         "storage": {"status": storage_status,
                     "backend": app_settings.storage_backend},
-        "scanner": {"status": "not_configured"},
+        "scanner": {"enabled": bool(app_settings.clamav_host),
+                    "required": app_settings.clamav_required,
+                    "counters": scan_counters()},
     }
 
 
