@@ -37,6 +37,9 @@ from app.db import init_db
 
 init_db()
 
+from app.services.processing import ensure_worker_started
+ensure_worker_started()
+
 settings.validate_production()
 
 

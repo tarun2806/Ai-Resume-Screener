@@ -14,6 +14,7 @@ from app.auth import get_current_user, require_roles
 from app.db import Application, Job, User, get_db, utcnow
 from app.services.analysis import run_analysis, extract_min_years
 from app.services.storage import generate_key, get_storage
+from app.services import processing as proc
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.services.tenancy import (
     get_org_job_or_404,
@@ -93,6 +94,7 @@ def _app_summary(app: Application) -> dict:
         "matched_skills": parsed.get("matched_skills", []),
         "missing_skills": parsed.get("missing_skills", []),
         "confidence": parsed.get("confidence"),
+        "processing_status": app.processing_status or "none",
         "created_at": app.created_at.isoformat() if app.created_at else None,
     }
 
@@ -229,9 +231,17 @@ async def screen_resumes(
 
     results = []
     errors = []
+    skipped = []
     for f in files:
         try:
             content = await read_and_validate(f)
+            chash = hashlib.sha256(content).hexdigest()
+            dup = db.query(Application).filter(
+                Application.job_id == job.id, Application.content_hash == chash).first()
+            if dup:
+                skipped.append({"file": f.filename, "reason": "duplicate_resume",
+                                "application_id": dup.id})
+                continue
             analysis = _screen_one(content, f.filename or "resume", job)
         except UploadValidationError as e:
             errors.append({"file": f.filename, "error": str(e)})
@@ -275,9 +285,171 @@ async def screen_resumes(
     )
     return {
         "screened": len(results),
+        "skipped": skipped,
         "errors": errors,
         "ranked": [_app_summary(a) for a in apps],
     }
+
+
+# ---------- async processing ----------
+
+@router.post("/jobs/{job_id}/screen/async")
+@limiter.limit("10/minute")
+async def screen_resumes_async(
+    request: Request,
+    job_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("recruiter", "admin")),
+):
+    """Store resumes privately and queue durable background processing.
+    Returns immediately with per-file queued application ids."""
+    job = _get_job_or_404(db, job_id, user)
+    require_job_write(db, user, job)
+    if len(files) > MAX_BULK_FILES:
+        raise HTTPException(status_code=400, detail=f"Max {MAX_BULK_FILES} files per batch")
+
+    batch_id = proc.new_batch_id()
+    queued, skipped, errors = [], [], []
+    storage = get_storage()
+
+    for f in files:
+        try:
+            content = await read_and_validate(f)
+        except UploadValidationError as e:
+            errors.append({"file": f.filename, "error": str(e)})
+            continue
+        except Exception:
+            errors.append({"file": f.filename, "error": "Upload failed"})
+            continue
+
+        chash = hashlib.sha256(content).hexdigest()
+        dup = db.query(Application).filter(
+            Application.job_id == job.id, Application.content_hash == chash).first()
+        if dup:
+            skipped.append({"file": f.filename, "reason": "duplicate_resume",
+                            "application_id": dup.id})
+            continue
+
+        try:
+            ext = (f.filename or "").rsplit(".", 1)[-1].lower()
+            storage_key = generate_key(job.organization_id, "." + ext if ext in ("pdf", "docx") else ".pdf")
+            storage.put(storage_key, content)
+        except Exception:
+            errors.append({"file": f.filename, "error": "Storage failed"})
+            continue
+
+        app = Application(
+            job_id=job.id,
+            candidate_name="",
+            candidate_email="",
+            resume_filename=f.filename or "",
+            resume_storage_key=storage_key,
+            content_hash=chash,
+            processing_status="queued",
+        )
+        db.add(app)
+        db.flush()
+        proc.enqueue(db, organization_id=job.organization_id, job_id=job.id,
+                     application_id=app.id, candidate_id=None,
+                     storage_key=storage_key, batch_id=batch_id)
+        queued.append({"file": f.filename, "application_id": app.id,
+                       "status": "queued"})
+
+    db.commit()
+    proc.ensure_worker_started()
+    return {"batch_id": batch_id, "queued": queued, "skipped": skipped, "errors": errors}
+
+
+def _processing_payload(pj) -> dict:
+    return {
+        "id": pj.id,
+        "application_id": pj.application_id,
+        "status": pj.status,
+        "attempt_count": pj.attempt_count,
+        "max_attempts": pj.max_attempts,
+        "last_error_code": pj.last_error_code or None,
+        "batch_id": pj.batch_id,
+        "created_at": pj.created_at.isoformat() if pj.created_at else None,
+        "started_at": pj.started_at.isoformat() if pj.started_at else None,
+        "completed_at": pj.completed_at.isoformat() if pj.completed_at else None,
+        "retry_after": pj.retry_after.isoformat() if pj.retry_after else None,
+    }
+
+
+@router.get("/jobs/{job_id}/processing")
+async def batch_processing_status(
+    job_id: int,
+    batch_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Batch progress for a job (optionally one batch_id). Org members only."""
+    job = _get_job_or_404(db, job_id, user)
+    q = db.query(proc.ProcessingJob).filter(proc.ProcessingJob.job_id == job.id)
+    if batch_id:
+        q = q.filter(proc.ProcessingJob.batch_id == batch_id)
+    jobs = q.order_by(proc.ProcessingJob.id.desc()).limit(500).all()
+    counts: dict = {}
+    for pj in jobs:
+        counts[pj.status] = counts.get(pj.status, 0) + 1
+    return {
+        "job_id": job.id,
+        "batch_id": batch_id,
+        "counts": counts,
+        "total": len(jobs),
+        "items": [_processing_payload(pj) for pj in jobs],
+    }
+
+
+@router.get("/applications/{app_id}/processing")
+async def application_processing_status(
+    app_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Latest processing state for one application.
+    Candidates see only their own application's status."""
+    app = db.query(Application).filter(Application.id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if user.role == "candidate" and app.candidate_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your application")
+    if user.role == "recruiter":
+        _get_job_or_404(db, app.job_id, user)
+    pj = proc.latest_job_for_application(db, app_id)
+    if pj is None:
+        return {"application_id": app_id, "status": app.processing_status or "none",
+                "processing": None}
+    return {"application_id": app_id, "status": app.processing_status or pj.status,
+            "processing": _processing_payload(pj)}
+
+
+@router.post("/applications/{app_id}/processing/retry")
+async def retry_processing(
+    app_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("recruiter", "admin")),
+):
+    """Requeue a failed processing job (org write access required)."""
+    app = db.query(Application).filter(Application.id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    job = _get_job_or_404(db, app.job_id, user)
+    require_job_write(db, user, job)
+    pj = proc.latest_job_for_application(db, app_id)
+    if pj is None or pj.status != "failed":
+        raise HTTPException(status_code=409, detail="Only failed jobs can be retried")
+    pj.attempt_count = 0
+    pj.last_error_code = ""
+    pj.retry_after = None
+    pj.locked_at = None
+    pj.completed_at = None
+    proc.transition(pj, "queued")
+    app.processing_status = "queued"
+    db.commit()
+    proc.ensure_worker_started()
+    return {"application_id": app_id, "status": "queued"}
 
 
 # ---------- applications ----------

@@ -16,7 +16,7 @@ from functools import lru_cache
 
 from app.config import settings
 
-_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9/_\-]{0,200}\.(pdf|docx)$")
+_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9/_\-]{0,200}\.(pdf|docx|bin)$")
 
 
 class StorageError(Exception):

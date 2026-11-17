@@ -85,6 +85,7 @@ class Application(Base):
     resume_filename = Column(String(255), default="")
     resume_storage_key = Column(String(300), default="", index=True)
     content_hash = Column(String(64), default="", index=True)
+    processing_status = Column(String(20), default="none", index=True)  # none|queued|processing|retry_wait|completed|failed
     resume_text = Column(Text, default="")
     parsed_profile = Column(Text, default="{}")   # JSON
     match_result = Column(Text, default="{}")      # JSON
@@ -138,6 +139,39 @@ class OrgInvitation(Base):
     created_at = Column(DateTime, default=utcnow)
 
     organization = relationship("Organization")
+
+
+class ProcessingJob(Base):
+    """Durable resume-processing queue row. The database is the source of
+    truth; workers claim rows atomically. State machine:
+
+        queued -> processing -> completed
+        processing -> retry_wait -> queued   (retry with backoff)
+        processing -> failed                (attempts exhausted)
+        failed -> queued                    (manual recruiter retry)
+    """
+    __tablename__ = "processing_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    application_id = Column(Integer, ForeignKey("applications.id"), nullable=False, index=True)
+    candidate_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    storage_key = Column(String(300), nullable=False)
+    batch_id = Column(String(64), default="", index=True)
+    status = Column(String(20), default="queued", index=True)
+    attempt_count = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=3)
+    last_error_code = Column(String(60), default="")
+    created_at = Column(DateTime, default=utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    retry_after = Column(DateTime, nullable=True)
+    locked_at = Column(DateTime, nullable=True)  # crash-recovery lease
+
+    organization = relationship("Organization")
+    job = relationship("Job")
+    application = relationship("Application")
 
 
 def init_db():
