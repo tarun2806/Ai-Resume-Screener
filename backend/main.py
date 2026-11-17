@@ -24,6 +24,25 @@ from app.db import init_db
 
 init_db()
 
+
+def _run_migrations_on_start() -> None:
+    """Optional startup migration for single-instance hosts (e.g. Render free).
+    Disabled by default; enable with RUN_MIGRATIONS_ON_START=true. Only safe
+    when a single API instance runs migrations."""
+    if os.getenv("RUN_MIGRATIONS_ON_START", "").lower() != "true":
+        return
+    from alembic import command
+    from alembic.config import Config
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    cfg = Config(os.path.join(here, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(here, "alembic"))
+    log.info("RUN_MIGRATIONS_ON_START: applying alembic upgrade head")
+    command.upgrade(cfg, "head")
+
+
+_run_migrations_on_start()
+
 from app.services.processing import ensure_worker_started
 ensure_worker_started()
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sparkles, LogOut, User as UserIcon, ShieldCheck } from 'lucide-react';
 import AuthPage from './components/AuthPage';
+import LandingPage from './components/LandingPage';
 import CandidatePortal from './pages/CandidatePortal';
 import RecruiterDashboard from './pages/RecruiterDashboard';
 import { authApi, tokenStore } from './lib/api';
@@ -8,6 +9,7 @@ import type { User } from './lib/api';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [view, setView] = useState<'landing' | 'auth'>('landing');
   const [booting, setBooting] = useState(() => !!tokenStore.get());
 
   useEffect(() => {
@@ -21,6 +23,7 @@ function App() {
   const logout = () => {
     tokenStore.clear();
     setUser(null);
+    setView('landing');
   };
 
   return (
@@ -66,7 +69,11 @@ function App() {
             <div className="w-10 h-10 border-2 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin" />
           </div>
         ) : !user ? (
-          <AuthPage onAuth={(u) => setUser(u)} />
+          view === 'landing' ? (
+            <LandingPage onAuth={setUser} onEnterAuth={() => setView('auth')} />
+          ) : (
+            <AuthPage onAuth={(u) => setUser(u)} />
+          )
         ) : user.role === 'candidate' ? (
           <CandidatePortal />
         ) : (

@@ -1,0 +1,45 @@
+# Render blueprint — free web service for the AI ScreenX demo backend.
+# Create via Render Dashboard > New > Blueprint, or `render` CLI.
+# All secret values use sync:false so they are prompted, never committed.
+services:
+  - type: web
+    name: ai-screenx-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false # postgresql+psycopg://... (Neon pooled connection string)
+      - key: JWT_SECRET
+        sync: false # random >=32 chars
+      - key: ALLOWED_ORIGINS
+        sync: false # https://<your-app>.vercel.app
+      - key: RUN_MIGRATIONS_ON_START
+        value: "true" # single instance only — applies alembic upgrade head
+      - key: WORKER_ENABLED
+        value: "true" # embedded worker thread drains the DB queue
+      - key: WORKER_CONCURRENCY
+        value: "1"
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false # https://<ref>.supabase.co/storage/v1/s3
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: CLAMAV_REQUIRED
+        value: "false" # no free clamd host — see deployment notes; uploads log scan errors
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
