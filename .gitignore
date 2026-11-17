@@ -36,3 +36,6 @@ v1-AI-Resume-Screener/
 # Playwright
 frontend/test-results/
 frontend/playwright-report/
+
+# private resume storage (runtime data)
+backend/data/
