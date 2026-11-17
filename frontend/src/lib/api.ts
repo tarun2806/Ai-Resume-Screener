@@ -25,9 +25,17 @@ export const tokenStore = {
 
 export const api = axios.create({ baseURL: API_BASE });
 
+// Active organization context — sent as X-Org-Id; backend still verifies membership.
+let activeOrgId: number | null = null;
+export const orgContext = {
+  get: () => activeOrgId,
+  set: (id: number | null) => { activeOrgId = id; },
+};
+
 api.interceptors.request.use((config) => {
   const token = tokenStore.get();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (activeOrgId != null) config.headers['X-Org-Id'] = String(activeOrgId);
   return config;
 });
 
@@ -46,6 +54,51 @@ export const authApi = {
   login: (body: { email: string; password: string }) =>
     api.post<AuthResponse>('/auth/login', body).then((r) => r.data),
   me: () => api.get<{ user: User }>('/auth/me').then((r) => r.data.user),
+};
+
+// ---------- organizations ----------
+export interface Org {
+  id: number;
+  name: string;
+  my_role: string;
+  created_at?: string | null;
+}
+
+export interface OrgMember {
+  user_id: number;
+  name: string | null;
+  email: string | null;
+  role: string;
+  joined_at: string | null;
+}
+
+export interface OrgInvite {
+  id: number;
+  email: string;
+  role: string;
+  expires_at: string | null;
+  expired?: boolean;
+}
+
+export const orgsApi = {
+  list: () => api.get<{ organizations: Org[] }>('/orgs').then((r) => r.data.organizations),
+  create: (name: string) => api.post<Org>('/orgs', { name }).then((r) => r.data),
+  get: (id: number) =>
+    api.get<Org & { members: OrgMember[] }>(`/orgs/${id}`).then((r) => r.data),
+  createInvite: (orgId: number, email: string, role: string) =>
+    api.post<{ id: number; token: string; email: string; role: string }>(`/orgs/${orgId}/invites`, { email, role }).then((r) => r.data),
+  listInvites: (orgId: number) =>
+    api.get<{ invites: OrgInvite[] }>(`/orgs/${orgId}/invites`).then((r) => r.data.invites),
+  revokeInvite: (orgId: number, inviteId: number) =>
+    api.delete(`/orgs/${orgId}/invites/${inviteId}`).then((r) => r.data),
+  acceptInvite: (token: string) =>
+    api.post<{ organization: Org; role: string }>('/orgs/invites/accept', { token }).then((r) => r.data),
+  setMemberRole: (orgId: number, userId: number, role: string) =>
+    api.patch<OrgMember>(`/orgs/${orgId}/members/${userId}`, { role }).then((r) => r.data),
+  removeMember: (orgId: number, userId: number) =>
+    api.delete(`/orgs/${orgId}/members/${userId}`).then((r) => r.data),
+  analytics: (orgId: number) =>
+    api.get<{ organization_id: number; total_jobs: number; total_applications: number; avg_score: number; by_status: Record<string, number> }>(`/orgs/${orgId}/analytics`).then((r) => r.data),
 };
 
 // ---------- ATS types ----------

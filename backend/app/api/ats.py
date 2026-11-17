@@ -13,6 +13,14 @@ from app.auth import get_current_user, require_roles
 from app.db import Application, Job, User, get_db, utcnow
 from app.services.analysis import run_analysis, extract_min_years
 from app.services.nlp_processor import AdvancedNLPProcessor
+from app.services.tenancy import (
+    get_org_job_or_404,
+    org_ids_for_user,
+    requested_org_id,
+    require_job_write,
+    require_org_write,
+    resolve_org,
+)
 from app.utils.parser import extract_text
 from app.utils.uploads import read_and_validate, UploadValidationError, MAX_UPLOAD_BYTES
 from app.ratelimit import limiter
@@ -88,12 +96,10 @@ def _app_summary(app: Application) -> dict:
 
 
 def _get_job_or_404(db: Session, job_id: int, user: User) -> Job:
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if user.role != "admin" and job.recruiter_id != user.id:
-        raise HTTPException(status_code=403, detail="Not your job")
-    return job
+    """Org-scoped job lookup: recruiter-facing access requires membership
+    in the job's organization. Returns 404 (not 403) cross-tenant to avoid
+    leaking job existence."""
+    return get_org_job_or_404(db, job_id, user)
 
 
 def _screen_one(file_bytes: bytes, filename: str, job: Job) -> dict:
@@ -110,13 +116,16 @@ def _screen_one(file_bytes: bytes, filename: str, job: Job) -> dict:
 
 @router.post("/jobs")
 async def create_job(
+    request: Request,
     body: JobCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("recruiter", "admin")),
 ):
+    membership = require_org_write(db, user, requested_org_id(request))
     jd = processor.process_jd(body.description)
     job = Job(
         recruiter_id=user.id,
+        organization_id=membership.org_id,
         title=body.title.strip(),
         description=body.description,
         location=body.location,
@@ -132,14 +141,23 @@ async def create_job(
 
 @router.get("/jobs")
 async def list_jobs(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     q = db.query(Job)
     if user.role == "candidate":
+        # Global job board: open jobs across all organizations.
         q = q.filter(Job.status == "open")
-    elif user.role != "admin":
-        q = q.filter(Job.recruiter_id == user.id)
+    elif user.role == "admin":
+        pass  # platform admin sees everything
+    else:
+        req_org = requested_org_id(request)
+        org_ids = [req_org] if req_org is not None else org_ids_for_user(db, user)
+        # requested_org_id already validated against membership via resolve below
+        if req_org is not None:
+            resolve_org(db, user, req_org)
+        q = q.filter(Job.organization_id.in_(org_ids)) if org_ids else q.filter(Job.id == -1)
     jobs = q.order_by(Job.created_at.desc()).all()
     return {"jobs": [_job_payload(j, db) for j in jobs]}
 
@@ -150,6 +168,12 @@ async def get_job(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if user.role == "candidate":
+        # Candidates browse the global job board: open jobs only.
+        job = db.query(Job).filter(Job.id == job_id, Job.status == "open").first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return _job_payload(job, db)
     job = _get_job_or_404(db, job_id, user)
     return _job_payload(job, db)
 
@@ -162,6 +186,7 @@ async def update_job(
     user: User = Depends(require_roles("recruiter", "admin")),
 ):
     job = _get_job_or_404(db, job_id, user)
+    require_job_write(db, user, job)
     job.title = body.title.strip()
     job.description = body.description
     job.location = body.location
@@ -185,6 +210,7 @@ async def screen_resumes(
     user: User = Depends(require_roles("recruiter", "admin")),
 ):
     job = _get_job_or_404(db, job_id, user)
+    require_job_write(db, user, job)
     if len(files) > MAX_BULK_FILES:
         raise HTTPException(status_code=400, detail=f"Max {MAX_BULK_FILES} files per batch")
 
@@ -405,7 +431,8 @@ async def update_application(
     app = db.query(Application).filter(Application.id == app_id).first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
-    _get_job_or_404(db, app.job_id, user)
+    job = _get_job_or_404(db, app.job_id, user)
+    require_job_write(db, user, job)
     if body.status is not None:
         app.status = body.status
     if body.notes is not None:
@@ -547,6 +574,7 @@ async def export_csv(
     user: User = Depends(get_current_user),
 ):
     job = _get_job_or_404(db, job_id, user)
+    require_job_write(db, user, job)
     apps = (
         db.query(Application)
         .filter(Application.job_id == job.id)
@@ -586,7 +614,8 @@ async def analytics(
 ):
     job_q = db.query(Job)
     if user.role != "admin":
-        job_q = job_q.filter(Job.recruiter_id == user.id)
+        org_ids = org_ids_for_user(db, user)
+        job_q = job_q.filter(Job.organization_id.in_(org_ids)) if org_ids else job_q.filter(Job.id == -1)
     jobs = job_q.all()
     job_ids = [j.id for j in jobs]
 

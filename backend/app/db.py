@@ -60,6 +60,7 @@ class Job(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     recruiter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     location = Column(String(255), default="")
@@ -69,6 +70,7 @@ class Job(Base):
     created_at = Column(DateTime, default=utcnow)
 
     recruiter = relationship("User", back_populates="jobs")
+    organization = relationship("Organization")
     applications = relationship("Application", back_populates="job")
 
 
@@ -92,6 +94,48 @@ class Application(Base):
 
     job = relationship("Job", back_populates="applications")
     candidate = relationship("User", back_populates="applications")
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    memberships = relationship("OrgMembership", back_populates="organization",
+                               cascade="all, delete-orphan")
+
+
+class OrgMembership(Base):
+    __tablename__ = "organization_memberships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # owner > admin > recruiter > viewer
+    role = Column(String(20), nullable=False, default="recruiter")
+    created_at = Column(DateTime, default=utcnow)
+
+    organization = relationship("Organization", back_populates="memberships")
+    user = relationship("User")
+
+
+class OrgInvitation(Base):
+    __tablename__ = "organization_invitations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    role = Column(String(20), nullable=False, default="recruiter")
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    invited_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    organization = relationship("Organization")
 
 
 def init_db():

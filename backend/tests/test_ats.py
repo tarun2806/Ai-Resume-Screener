@@ -126,10 +126,10 @@ def test_job_crud_and_screening(recruiter):
     assert r.status_code == 200
     assert r.json()["status"] == "shortlisted"
 
-    # other recruiter cannot see it
+    # other recruiter (different org) cannot see it — 404, no existence leak
     other = _register("other@t.com", "recruiter")
     r = client.get(f"/api/v1/ats/jobs/{job['id']}/applications", headers=_auth(other["token"]))
-    assert r.status_code == 403
+    assert r.status_code == 404
 
     # export csv
     r = client.get(f"/api/v1/ats/jobs/{job['id']}/export.csv", headers=tok)

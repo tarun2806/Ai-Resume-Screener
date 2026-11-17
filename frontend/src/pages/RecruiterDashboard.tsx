@@ -4,7 +4,8 @@ import {
   CheckCircle2, Clock, XCircle, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, Building2, Mail, AlertCircle, Loader2, ShieldCheck,
 } from 'lucide-react';
-import { atsApi } from '../lib/api';
+import { atsApi, orgContext, orgsApi } from '../lib/api';
+import type { Org } from '../lib/api';
 import type { Analytics, ApplicationDetail, ApplicationSummary, CompareResult, Job, JobInsights, ScoreComponent, User } from '../lib/api';
 
 const STATUSES = ['new', 'reviewed', 'shortlisted', 'rejected', 'interview'];
@@ -338,7 +339,41 @@ export default function RecruiterDashboard({ user }: { user: User }) {
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [compareData, setCompareData] = useState<CompareResult | null>(null);
   const [insights, setInsights] = useState<JobInsights | null>(null);
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [activeOrgId, setActiveOrgId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const loadOrgs = useCallback(async () => {
+    try {
+      const list = await orgsApi.list();
+      setOrgs(list);
+      if (list.length && orgContext.get() == null) {
+        orgContext.set(list[0].id);
+        setActiveOrgId(list[0].id);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const switchOrg = async (id: number) => {
+    orgContext.set(id);
+    setActiveOrgId(id);
+    setSelectedJob(null);
+    await loadJobs();
+    await loadAnalytics();
+  };
+
+  const createOrg = async () => {
+    const name = window.prompt('Organization name');
+    if (!name || name.trim().length < 2) return;
+    try {
+      const org = await orgsApi.create(name.trim());
+      await loadOrgs();
+      await switchOrg(org.id);
+    } catch (e) {
+      const ax = e as { response?: { data?: { detail?: string } } };
+      window.alert(ax.response?.data?.detail || 'Failed to create organization');
+    }
+  };
 
   const loadJobs = useCallback(async () => {
     try { setJobs(await atsApi.listJobs()); } catch { /* ignore */ }
@@ -358,7 +393,8 @@ export default function RecruiterDashboard({ user }: { user: User }) {
     try { setAnalytics(await atsApi.analytics()); } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { loadJobs(); loadAnalytics(); }, [loadJobs, loadAnalytics]);
+  useEffect(() => { loadOrgs(); }, [loadOrgs]);
+  useEffect(() => { if (activeOrgId != null) { loadJobs(); loadAnalytics(); } }, [activeOrgId, loadJobs, loadAnalytics]);
   useEffect(() => { if (user.role === 'admin') atsApi.listUsers().then(setUsers).catch(() => {}); }, [user.role]);
   useEffect(() => { if (selectedJob) loadApps(selectedJob); }, [selectedJob, loadApps]);
   useEffect(() => {
@@ -424,6 +460,24 @@ export default function RecruiterDashboard({ user }: { user: User }) {
 
   return (
     <div className="space-y-6">
+      {/* Organization switcher */}
+      {orgs.length > 0 && (
+        <div className="flex items-center gap-3">
+          <Building2 className="w-4 h-4 text-cyan-400" />
+          <select
+            data-testid="org-switcher"
+            className="bg-white/5 border border-white/10 rounded-lg text-xs px-3 py-2 text-slate-200"
+            value={activeOrgId ?? ''}
+            onChange={(e) => switchOrg(Number(e.target.value))}
+          >
+            {orgs.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.my_role})</option>)}
+          </select>
+          <button onClick={createOrg} className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+            <Plus className="w-3 h-3" /> New org
+          </button>
+        </div>
+      )}
+
       {/* Analytics strip */}
       {analytics && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger">

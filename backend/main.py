@@ -31,6 +31,7 @@ from app.api.jobs import router as jobs_router
 from app.api.matches import router as matches_router
 from app.api.auth import router as auth_router
 from app.api.ats import router as ats_router
+from app.api.orgs import router as orgs_router
 from app.config import settings
 from app.db import init_db
 
@@ -128,6 +129,7 @@ app.include_router(jobs_router, prefix="/api/v1/jobs", tags=["Jobs"])
 app.include_router(matches_router, prefix="/api/v1/matches", tags=["Matching Engine"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(ats_router, prefix="/api/v1/ats", tags=["ATS"])
+app.include_router(orgs_router, prefix="/api/v1", tags=["Organizations"])
 
 @app.get("/", tags=["Health"])
 async def health_check():

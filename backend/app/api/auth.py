@@ -5,8 +5,19 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.auth import create_token, get_current_user, hash_password, verify_password
-from app.db import User, get_db
+from app.db import OrgMembership, Organization, User, get_db
 from app.ratelimit import limiter
+
+def _provision_personal_org(db: Session, user: User) -> None:
+    """Recruiters get a personal organization with owner membership so they
+    can create org-scoped jobs immediately. Candidates stay global."""
+    if user.role != "recruiter":
+        return
+    org = Organization(name=f"{user.name or user.email}'s Organization")
+    db.add(org)
+    db.flush()
+    db.add(OrgMembership(org_id=org.id, user_id=user.id, role="owner"))
+
 
 router = APIRouter()
 
@@ -47,6 +58,8 @@ async def register(request: Request, body: RegisterRequest, db: Session = Depend
         role=body.role,
     )
     db.add(user)
+    db.flush()
+    _provision_personal_org(db, user)
     db.commit()
     db.refresh(user)
     return {"token": create_token(user), "user": _user_payload(user)}
