@@ -13,3 +13,4 @@ pyjwt
 sqlalchemy
 alembic
 psycopg[binary]
+boto3

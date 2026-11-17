@@ -8,34 +8,8 @@ import time
 import uvicorn
 
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        from app.request_context import org_id_var, request_id_var, user_id_var
-        payload = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-            "level": record.levelname,
-            "service": "ai-screenx",
-            "env": settings.environment if "settings" in dir() else "development",
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        rid = request_id_var.get()
-        if rid:
-            payload["request_id"] = rid
-        uid = user_id_var.get()
-        if uid is not None:
-            payload["user_id"] = uid
-        oid = org_id_var.get()
-        if oid is not None:
-            payload["org_id"] = oid
-        return json.dumps(payload, default=str)
-
-
-_handler = logging.StreamHandler()
-_handler.setFormatter(JsonFormatter())
-_root = logging.getLogger()
-_root.handlers = [_handler]
-_root.setLevel(logging.INFO)
+from app.logging_setup import configure_logging
+configure_logging()
 log = logging.getLogger("ai-screenx")
 
 # Import Routers

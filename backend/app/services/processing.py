@@ -12,6 +12,8 @@ State machine:
     failed -> queued                    (manual retry via API)
 """
 import logging
+import os
+import socket
 import threading
 import time
 import uuid
@@ -21,7 +23,7 @@ from sqlalchemy import and_, or_
 
 from app.config import settings
 from app.db import (
-    Application, Job, ProcessingJob, SessionLocal, get_db, utcnow,
+    Application, Job, ProcessingJob, SessionLocal, WorkerHeartbeat, get_db, utcnow,
 )
 from app.services.analysis import run_analysis
 from app.services.storage import get_storage
@@ -51,18 +53,54 @@ _worker_stop = threading.Event()
 _worker_last_tick = None
 _jobs_completed = 0
 _jobs_failed = 0
+_WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+_heartbeat_lock = threading.Lock()
+
+
+def _heartbeat(db) -> None:
+    """Persist worker liveness + counters so the API can report health for
+    workers running in separate processes. Serialized per process."""
+    with _heartbeat_lock:
+        row = db.query(WorkerHeartbeat).filter(WorkerHeartbeat.worker_id == _WORKER_ID).first()
+        if row is None:
+            row = WorkerHeartbeat(worker_id=_WORKER_ID, hostname=socket.gethostname(),
+                                  pid=os.getpid())
+            db.add(row)
+        row.last_tick_at = utcnow()
+        row.jobs_completed = _jobs_completed
+        row.jobs_failed = _jobs_failed
+        db.commit()
 
 
 def worker_health() -> dict:
-    """Operational health snapshot for the processing worker."""
+    """Operational health snapshot for the processing worker(s)."""
     import time as _t
-    from app.db import SessionLocal as _SL
-    db = _SL()
+    from datetime import timezone
+    db = SessionLocal()
     try:
         from sqlalchemy import func
         depth = dict(db.query(ProcessingJob.status, func.count()).group_by(ProcessingJob.status).all())
+        hbs = db.query(WorkerHeartbeat).all()
     finally:
         db.close()
+    now = _t.time()
+    alive_window = max(30.0, settings.worker_poll_seconds * 5)
+    workers = []
+    for hb in hbs:
+        tick = hb.last_tick_at
+        if tick is not None and tick.tzinfo is None:
+            tick = tick.replace(tzinfo=timezone.utc)
+        age = (now - tick.timestamp()) if tick else None
+        workers.append({
+            "worker_id": hb.worker_id,
+            "hostname": hb.hostname,
+            "pid": hb.pid,
+            "last_tick_age_seconds": round(age, 1) if age is not None else None,
+            "alive": age is not None and age <= alive_window,
+            "jobs_completed": hb.jobs_completed,
+            "jobs_failed": hb.jobs_failed,
+            "started_at": hb.started_at.isoformat() if hb.started_at else None,
+        })
     age = (_t.time() - _worker_last_tick) if _worker_last_tick else None
     return {
         "enabled": settings.worker_enabled,
@@ -71,6 +109,8 @@ def worker_health() -> dict:
         "jobs_completed": _jobs_completed,
         "jobs_failed": _jobs_failed,
         "queue_depth": depth,
+        "workers": workers,
+        "external_workers_alive": sum(1 for w in workers if w["alive"]),
     }
 
 
@@ -314,10 +354,11 @@ def drain(limit: int | None = None) -> int:
 
 
 def worker_loop() -> None:
-    """Poll loop for the background thread."""
+    """Poll loop for a worker thread (embedded or standalone process)."""
     db = SessionLocal()
     try:
         requeue_stale(db)
+        _heartbeat(db)
     finally:
         db.close()
     global _worker_last_tick
@@ -327,6 +368,14 @@ def worker_loop() -> None:
             _worker_last_tick = time.time()
         except Exception:
             log.exception("worker drain failed")
+        try:
+            db = SessionLocal()
+            try:
+                _heartbeat(db)
+            finally:
+                db.close()
+        except Exception:
+            log.exception("worker heartbeat failed")
         _worker_stop.wait(settings.worker_poll_seconds)
 
 

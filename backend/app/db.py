@@ -193,6 +193,21 @@ class AuditEvent(Base):
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
+class WorkerHeartbeat(Base):
+    """Liveness/counters for standalone worker processes. One row per
+    worker instance (worker_id = hostname-pid); the API reads these to
+    report worker health without sharing a process."""
+    __tablename__ = "worker_heartbeats"
+
+    worker_id = Column(String(80), primary_key=True)
+    hostname = Column(String(120), default="")
+    pid = Column(Integer, default=0)
+    started_at = Column(DateTime, default=utcnow)
+    last_tick_at = Column(DateTime, nullable=True)
+    jobs_completed = Column(Integer, default=0)
+    jobs_failed = Column(Integer, default=0)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
