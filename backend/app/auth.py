@@ -69,6 +69,8 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=401, detail="User no longer exists")
+    from app.request_context import set_actor
+    set_actor(user)
     return user
 
 

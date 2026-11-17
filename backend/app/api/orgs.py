@@ -1,4 +1,5 @@
 """Organization management endpoints: create, membership, invitations."""
+import json
 import secrets
 from datetime import timedelta, timezone
 
@@ -11,6 +12,7 @@ from app.db import (
     Application, Job, OrgInvitation, OrgMembership, Organization, User, get_db, utcnow,
 )
 from app.services.tenancy import ORG_ROLE_RANK, resolve_org, user_memberships
+from app.services.audit import record as audit_record
 
 router = APIRouter()
 
@@ -104,6 +106,9 @@ async def create_org(
     db.add(org)
     db.flush()
     db.add(OrgMembership(org_id=org.id, user_id=user.id, role="owner"))
+    audit_record(db, action="org_created", actor=user, organization_id=org.id,
+                 resource_type="organization", resource_id=org.id,
+                 metadata={"name": org.name})
     db.commit()
     db.refresh(org)
     return _org_payload(db, org, user)
@@ -152,6 +157,9 @@ async def create_invite(
         expires_at=utcnow() + timedelta(hours=INVITE_TTL_HOURS),
     )
     db.add(inv)
+    audit_record(db, action="invite_created", actor=user, organization_id=org_id,
+                 resource_type="invitation", resource_id=inv.id,
+                 metadata={"email": email, "role": body.role})
     db.commit()
     db.refresh(inv)
     return {
@@ -203,6 +211,8 @@ async def revoke_invite(
     if not inv:
         raise HTTPException(status_code=404, detail="Invitation not found")
     inv.revoked_at = utcnow()
+    audit_record(db, action="invite_revoked", actor=user, organization_id=org_id,
+                 resource_type="invitation", resource_id=inv.id)
     db.commit()
     return {"revoked": True}
 
@@ -226,6 +236,9 @@ async def accept_invite(
         raise HTTPException(status_code=409, detail="Already a member")
     db.add(OrgMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
     inv.accepted_at = utcnow()
+    audit_record(db, action="invite_accepted", actor=user, organization_id=inv.org_id,
+                 resource_type="invitation", resource_id=inv.id,
+                 metadata={"role": inv.role})
     db.commit()
     org = _get_org_or_404(db, inv.org_id)
     return {"organization": _org_payload(db, org, user), "role": inv.role}
@@ -251,7 +264,11 @@ async def set_member_role(
             OrgMembership.org_id == org_id, OrgMembership.role == "owner").count()
         if owners <= 1:
             raise HTTPException(status_code=400, detail="Cannot demote the last owner")
+    old_role = m.role
     m.role = body.role
+    audit_record(db, action="member_role_changed", actor=user, organization_id=org_id,
+                 resource_type="membership", resource_id=m.id,
+                 metadata={"target_user_id": user_id, "from": old_role, "to": body.role})
     db.commit()
     return _membership_payload(db, m)
 
@@ -276,7 +293,11 @@ async def remove_member(
             OrgMembership.org_id == org_id, OrgMembership.role == "owner").count()
         if owners <= 1:
             raise HTTPException(status_code=400, detail="Cannot remove the last owner")
+    removed_role = m.role
     db.delete(m)
+    audit_record(db, action="member_removed", actor=user, organization_id=org_id,
+                 resource_type="membership", resource_id=m.id,
+                 metadata={"target_user_id": user_id, "role": removed_role})
     db.commit()
     return {"removed": True}
 
@@ -309,3 +330,39 @@ async def org_analytics(
         "avg_score": round(sum(scores) / len(scores), 2) if scores else 0,
         "by_status": by_status,
     }
+
+
+# ---------- audit ----------
+
+@router.get("/orgs/{org_id}/audit")
+async def org_audit_log(
+    org_id: int,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Org-scoped audit trail. Org owner/admin only."""
+    from app.db import AuditEvent
+    _require_org_admin(db, user, org_id)
+    _get_org_or_404(db, org_id)
+    events = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.organization_id == org_id)
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .limit(min(max(limit, 1), 500))
+        .all()
+    )
+    return {"organization_id": org_id, "events": [
+        {
+            "id": e.id,
+            "action": e.action,
+            "outcome": e.outcome,
+            "actor_email": e.actor_email or None,
+            "resource_type": e.resource_type,
+            "resource_id": e.resource_id,
+            "request_id": e.request_id or None,
+            "metadata": json.loads(e.metadata_json or "{}"),
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in events
+    ]}

@@ -10,12 +10,25 @@ import uvicorn
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return json.dumps({
+        from app.request_context import org_id_var, request_id_var, user_id_var
+        payload = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
             "level": record.levelname,
+            "service": "ai-screenx",
+            "env": settings.environment if "settings" in dir() else "development",
             "logger": record.name,
             "msg": record.getMessage(),
-        })
+        }
+        rid = request_id_var.get()
+        if rid:
+            payload["request_id"] = rid
+        uid = user_id_var.get()
+        if uid is not None:
+            payload["user_id"] = uid
+        oid = org_id_var.get()
+        if oid is not None:
+            payload["org_id"] = oid
+        return json.dumps(payload, default=str)
 
 
 _handler = logging.StreamHandler()
@@ -100,13 +113,42 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
+    from app.request_context import new_request_id, set_request_id
+    from app import metrics as app_metrics
+    rid = request.headers.get("x-request-id") or new_request_id()
+    set_request_id(rid[:64])
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
+    app_metrics.record_request(process_time, response.status_code, request.url.path)
     response.headers["X-Process-Time"] = str(process_time)
+    response.headers["X-Request-ID"] = rid[:64]
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Audit denied access to API endpoints (no PII, path template only)
+    if response.status_code in (401, 403) and request.url.path.startswith("/api/v1/"):
+        try:
+            from app.db import AuditEvent, SessionLocal
+            from app.request_context import user_id_var, user_email_var
+            db = SessionLocal()
+            try:
+                db.add(AuditEvent(
+                    actor_id=user_id_var.get(),
+                    actor_email=(user_email_var.get() or "")[:255],
+                    action="access_denied",
+                    resource_type="endpoint",
+                    resource_id=request.url.path[:64],
+                    outcome="denied",
+                    request_id=rid[:64],
+                    metadata_json="{}",
+                ))
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
     return response
 
 # 🚨 Global Error Handling

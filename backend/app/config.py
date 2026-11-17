@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     worker_lease_seconds: int = int(os.getenv("WORKER_LEASE_SECONDS", "900"))
     processing_max_attempts: int = int(os.getenv("PROCESSING_MAX_ATTEMPTS", "3"))
     processing_retry_base_seconds: int = int(os.getenv("PROCESSING_RETRY_BASE_SECONDS", "30"))
+    # Malware scanning (clamd INSTREAM). Unset host = scanning disabled.
+    audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "730"))
 
     @property
     def is_production(self) -> bool:

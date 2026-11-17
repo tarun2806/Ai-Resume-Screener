@@ -174,6 +174,25 @@ class ProcessingJob(Base):
     application = relationship("Application")
 
 
+class AuditEvent(Base):
+    """Append-only audit log. No update/delete API exists; retention is
+    enforced only by the admin purge endpoint. Never stores secrets,
+    tokens, resume contents, or unnecessary PII."""
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_email = Column(String(255), default="")   # operational identifier, not full PII payload
+    action = Column(String(60), nullable=False, index=True)
+    resource_type = Column(String(40), default="")
+    resource_id = Column(String(64), default="")
+    outcome = Column(String(20), default="success")  # success|denied|failure
+    request_id = Column(String(64), default="", index=True)
+    metadata_json = Column(Text, default="{}")       # sanitized, small
+    created_at = Column(DateTime, default=utcnow, index=True)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

@@ -15,6 +15,7 @@ from app.db import Application, Job, User, get_db, utcnow
 from app.services.analysis import run_analysis, extract_min_years
 from app.services.storage import generate_key, get_storage
 from app.services import processing as proc
+from app.services.audit import record as audit_record
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.services.tenancy import (
     get_org_job_or_404,
@@ -149,6 +150,8 @@ async def create_job(
         min_years=extract_min_years(body.description),
     )
     db.add(job)
+    audit_record(db, action="job_created", actor=user, organization_id=membership.org_id,
+                 resource_type="job", resource_id=job.id, metadata={"title": job.title})
     db.commit()
     db.refresh(job)
     return _job_payload(job, db)
@@ -209,6 +212,8 @@ async def update_job(
     jd = processor.process_jd(body.description)
     job.required_skills = json.dumps(jd.get("explicit_skills", []))
     job.min_years = extract_min_years(body.description)
+    audit_record(db, action="job_updated", actor=user,
+                 resource_type="job", resource_id=job.id, metadata={"title": job.title})
     db.commit()
     return _job_payload(job, db)
 
@@ -274,6 +279,10 @@ async def screen_resumes(
         db.add(app)
         results.append({"file": f.filename, "score": app.score, "id": None})
 
+    audit_record(db, action="screening_submitted", actor=user,
+                 resource_type="job", resource_id=job.id,
+                 metadata={"files": len(files), "screened": len(results),
+                           "skipped": len(skipped), "errors": len(errors)})
     db.commit()
 
     # refresh ids + return ranked
@@ -356,6 +365,10 @@ async def screen_resumes_async(
         queued.append({"file": f.filename, "application_id": app.id,
                        "status": "queued"})
 
+    audit_record(db, action="screening_queued", actor=user,
+                 resource_type="job", resource_id=job.id,
+                 metadata={"batch_id": batch_id, "queued": len(queued),
+                           "skipped": len(skipped), "errors": len(errors)})
     db.commit()
     proc.ensure_worker_started()
     return {"batch_id": batch_id, "queued": queued, "skipped": skipped, "errors": errors}
@@ -447,6 +460,8 @@ async def retry_processing(
     pj.completed_at = None
     proc.transition(pj, "queued")
     app.processing_status = "queued"
+    audit_record(db, action="processing_retry", actor=user,
+                 resource_type="application", resource_id=app.id)
     db.commit()
     proc.ensure_worker_started()
     return {"application_id": app_id, "status": "queued"}
@@ -633,6 +648,9 @@ async def download_resume(
         raise HTTPException(status_code=404, detail="Stored resume unavailable")
     # Sanitize filename for Content-Disposition (no path components)
     safe_name = (app.resume_filename or "resume").replace('"', "").replace(chr(92), "/").split("/")[-1] or "resume"
+    audit_record(db, action="resume_downloaded", actor=user,
+                 resource_type="application", resource_id=app.id)
+    db.commit()
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/octet-stream",
@@ -652,10 +670,18 @@ async def update_application(
         raise HTTPException(status_code=404, detail="Application not found")
     job = _get_job_or_404(db, app.job_id, user)
     require_job_write(db, user, job)
+    actions = []
     if body.status is not None:
+        old_status = app.status
         app.status = body.status
+        actions.append(("application_status_changed",
+                        {"from": old_status, "to": body.status}))
     if body.notes is not None:
         app.recruiter_notes = body.notes
+        actions.append(("application_notes_updated", {}))
+    for act, meta in actions:
+        audit_record(db, action=act, actor=user,
+                     resource_type="application", resource_id=app.id, metadata=meta)
     db.commit()
     return _app_summary(app)
 
@@ -683,6 +709,9 @@ async def apply_to_job(
 
     try:
         content = await read_and_validate(file)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
         analysis = _screen_one(content, file.filename or "resume", job)
     except UploadValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -714,6 +743,9 @@ async def apply_to_job(
         score=analysis.get("overall_score", 0.0),
     )
     db.add(app)
+    audit_record(db, action="application_submitted", actor=user,
+                 resource_type="job", resource_id=job.id,
+                 metadata={"application_id": app.id})
     db.commit()
     db.refresh(app)
     return _app_summary(app)
@@ -745,6 +777,9 @@ async def export_my_data(
         .order_by(Application.created_at.desc())
         .all()
     )
+    audit_record(db, action="candidate_data_exported", actor=user,
+                 resource_type="user", resource_id=user.id)
+    db.commit()
     return {
         "user": {
             "id": user.id,
@@ -781,8 +816,22 @@ async def delete_my_account(
                 storage.delete(a.resume_storage_key)
             except Exception:
                 pass  # best-effort; DB record deletion proceeds regardless
+    uid = user.id
+    email = user.email
+    # Detach audit references: actor_id FK would block user deletion.
+    # actor_email is retained so the trail stays attributable.
+    from app.db import AuditEvent
+    db.query(AuditEvent).filter(AuditEvent.actor_id == uid).update(
+        {AuditEvent.actor_id: None})
     db.query(Application).filter(Application.candidate_id == user.id).delete()
     db.delete(user)
+    from app.request_context import request_id_var
+    db.add(AuditEvent(
+        actor_id=None, actor_email=email[:255],
+        action="account_deleted", resource_type="user", resource_id=str(uid),
+        outcome="success", request_id=request_id_var.get()[:64],
+        metadata_json='{"self_service": true}',
+    ))
     db.commit()
     return {"deleted": True}
 
@@ -795,6 +844,43 @@ def _csv_safe(value) -> str:
     return s
 
 
+@router.get("/applications/{app_id}/history")
+async def application_history(
+    app_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Activity timeline for one application. Org members see recruiter
+    events; the owning candidate sees the same timeline for their own app."""
+    from app.db import AuditEvent
+    app = db.query(Application).filter(Application.id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if user.role == "candidate" and app.candidate_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your application")
+    if user.role == "recruiter":
+        _get_job_or_404(db, app.job_id, user)
+    events = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.resource_type == "application",
+                AuditEvent.resource_id == str(app_id))
+        .order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
+        .limit(500)
+        .all()
+    )
+    return {"application_id": app_id, "events": [
+        {
+            "id": e.id,
+            "action": e.action,
+            "outcome": e.outcome,
+            "actor_email": e.actor_email or None,
+            "metadata": json.loads(e.metadata_json or "{}"),
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in events
+    ]}
+
+
 # ---------- export & analytics ----------
 
 @router.get("/jobs/{job_id}/export.csv")
@@ -805,6 +891,9 @@ async def export_csv(
 ):
     job = _get_job_or_404(db, job_id, user)
     require_job_write(db, user, job)
+    audit_record(db, action="csv_exported", actor=user,
+                 resource_type="job", resource_id=job.id)
+    db.commit()
     apps = (
         db.query(Application)
         .filter(Application.job_id == job.id)
@@ -930,8 +1019,76 @@ async def purge_expired_resume_text(
             a.match_result = "{}"
             a.parsed_profile = "{}"
             purged += 1
+    audit_record(db, action="retention_purge", actor=user,
+                 resource_type="application", resource_id="*",
+                 metadata={"purged": purged, "retention_days": days})
     db.commit()
     return {"purged": purged, "retention_days": days}
+
+
+@router.get("/admin/metrics")
+async def admin_metrics(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("admin")),
+):
+    """Operational metrics for platform admins. Internal detail — never public."""
+    from app import metrics as app_metrics
+    from app.db import engine, ProcessingJob
+    from app.services import processing as proc
+    from app.services.storage import get_storage, generate_key
+    from app.config import settings as app_settings
+    from datetime import timedelta as _td
+
+    # DB pool utilization (QueuePool on PostgreSQL; NullPool/simple on SQLite)
+    pool = {}
+    try:
+        pool = engine.pool.status() if hasattr(engine.pool, "status") else {}
+    except Exception:
+        pool = {"error": "unavailable"}
+
+    # Storage writability probe (put + delete a tiny object)
+    storage_status = "ok"
+    try:
+        probe_key = generate_key(0, ".pdf")
+        get_storage().put(probe_key, b"%PDF-1.4 probe")
+        get_storage().delete(probe_key)
+    except Exception:
+        storage_status = "error"
+
+    # Stale processing jobs (locked past lease)
+    cutoff = utcnow() - _td(seconds=app_settings.worker_lease_seconds)
+    stale = db.query(ProcessingJob).filter(
+        ProcessingJob.status == "processing", ProcessingJob.locked_at < cutoff).count()
+
+    return {
+        "api": app_metrics.snapshot(),
+        "database": {"pool": pool},
+        "worker": proc.worker_health(),
+        "queue": {"stale_processing": stale},
+        "storage": {"status": storage_status,
+                    "backend": app_settings.storage_backend},
+        "scanner": {"status": "not_configured"},
+    }
+
+
+@router.post("/admin/maintenance/purge-audit")
+async def purge_audit_events(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("admin")),
+):
+    """Retention control for the audit log (default 730 days)."""
+    from app.config import settings
+    from app.db import AuditEvent
+    days = settings.audit_retention_days
+    if days <= 0:
+        return {"purged": 0, "retention_days": days, "note": "retention disabled"}
+    cutoff = utcnow() - timedelta(days=days)
+    n = db.query(AuditEvent).filter(AuditEvent.created_at < cutoff).delete()
+    audit_record(db, action="audit_purge", actor=user,
+                 resource_type="audit_event", resource_id="*",
+                 metadata={"purged": n, "retention_days": days})
+    db.commit()
+    return {"purged": n, "retention_days": days}
 
 
 @router.patch("/admin/users/{user_id}/role")
@@ -947,5 +1104,8 @@ async def set_user_role(
     if target.id == admin.id and body.role != "admin":
         raise HTTPException(status_code=400, detail="Cannot demote yourself")
     target.role = body.role
+    audit_record(db, action="admin_role_changed", actor=user,
+                 resource_type="user", resource_id=target.id,
+                 metadata={"role": body.role})
     db.commit()
     return {"id": target.id, "role": target.role}

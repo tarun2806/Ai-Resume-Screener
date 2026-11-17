@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.auth import create_token, get_current_user, hash_password, verify_password
+from app.services.audit import record as audit_record
 from app.db import OrgMembership, Organization, User, get_db
 from app.ratelimit import limiter
 
@@ -17,6 +18,9 @@ def _provision_personal_org(db: Session, user: User) -> None:
     db.add(org)
     db.flush()
     db.add(OrgMembership(org_id=org.id, user_id=user.id, role="owner"))
+    audit_record(db, action="org_created", actor=user, organization_id=org.id,
+                 resource_type="organization", resource_id=org.id,
+                 metadata={"name": org.name, "auto_provisioned": True})
 
 
 router = APIRouter()
@@ -60,6 +64,9 @@ async def register(request: Request, body: RegisterRequest, db: Session = Depend
     db.add(user)
     db.flush()
     _provision_personal_org(db, user)
+    audit_record(db, action="user_registered", actor=user,
+                 resource_type="user", resource_id=user.id,
+                 metadata={"role": user.role})
     db.commit()
     db.refresh(user)
     return {"token": create_token(user), "user": _user_payload(user)}
@@ -70,7 +77,16 @@ async def register(request: Request, body: RegisterRequest, db: Session = Depend
 async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email.lower().strip()).first()
     if user is None or not verify_password(body.password, user.password_hash):
+        audit_record(db, action="login_failed", actor=None,
+                     resource_type="user", resource_id=body.email.lower().strip()[:64],
+                     outcome="denied", metadata={"reason": "bad_credentials"})
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    from app.request_context import set_actor
+    set_actor(user)
+    audit_record(db, action="login_success", actor=user,
+                 resource_type="user", resource_id=user.id)
+    db.commit()
     return {"token": create_token(user), "user": _user_payload(user)}
 
 

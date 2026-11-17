@@ -25,6 +25,7 @@ from app.db import (
 )
 from app.services.analysis import run_analysis
 from app.services.storage import get_storage
+from app.services.audit import record as audit_record
 from app.utils.parser import extract_text
 from app.utils.uploads import UploadValidationError, validate_upload
 
@@ -47,6 +48,30 @@ ERR_INTERNAL = "internal_error"
 
 _worker_thread = None
 _worker_stop = threading.Event()
+_worker_last_tick = None
+_jobs_completed = 0
+_jobs_failed = 0
+
+
+def worker_health() -> dict:
+    """Operational health snapshot for the processing worker."""
+    import time as _t
+    from app.db import SessionLocal as _SL
+    db = _SL()
+    try:
+        from sqlalchemy import func
+        depth = dict(db.query(ProcessingJob.status, func.count()).group_by(ProcessingJob.status).all())
+    finally:
+        db.close()
+    age = (_t.time() - _worker_last_tick) if _worker_last_tick else None
+    return {
+        "enabled": settings.worker_enabled,
+        "thread_alive": bool(_worker_thread and _worker_thread.is_alive()),
+        "last_tick_age_seconds": round(age, 1) if age is not None else None,
+        "jobs_completed": _jobs_completed,
+        "jobs_failed": _jobs_failed,
+        "queue_depth": depth,
+    }
 
 
 def _aware(dt):
@@ -149,6 +174,8 @@ def _error_code(exc: Exception) -> str:
 
 
 def _fail_or_retry(db, job: ProcessingJob, exc: Exception) -> None:
+    global _jobs_failed
+    _jobs_failed += 1
     job.last_error_code = _error_code(exc)
     app = db.query(Application).filter(Application.id == job.application_id).first()
     if app:
@@ -160,6 +187,11 @@ def _fail_or_retry(db, job: ProcessingJob, exc: Exception) -> None:
     else:
         transition(job, "failed")
         job.completed_at = utcnow()
+    audit_record(db, action="screening_failed", organization_id=job.organization_id,
+                 actor=None, resource_type="application", resource_id=job.application_id,
+                 outcome="failure",
+                 metadata={"job_id": job.job_id, "attempt": job.attempt_count,
+                           "error_code": job.last_error_code})
     db.commit()
     log.warning("processing job %s attempt %s failed: %s", job.id, job.attempt_count, job.last_error_code)
 
@@ -208,9 +240,15 @@ def process_job(job_id: int) -> str:
         })
         app.match_result = _json.dumps(analysis)
         app.score = analysis.get("overall_score", 0.0)
+        global _jobs_completed
+        _jobs_completed += 1
         app.processing_status = "completed"
         transition(job, "completed")
         job.completed_at = utcnow()
+        audit_record(db, action="screening_completed", organization_id=job.organization_id,
+                     actor=None, resource_type="application", resource_id=app.id,
+                     metadata={"job_id": job.job_id, "score": app.score,
+                               "attempt": job.attempt_count})
         db.commit()
         return "completed"
     except Exception:
@@ -282,9 +320,11 @@ def worker_loop() -> None:
         requeue_stale(db)
     finally:
         db.close()
+    global _worker_last_tick
     while not _worker_stop.is_set():
         try:
             drain(limit=10)
+            _worker_last_tick = time.time()
         except Exception:
             log.exception("worker drain failed")
         _worker_stop.wait(settings.worker_poll_seconds)
