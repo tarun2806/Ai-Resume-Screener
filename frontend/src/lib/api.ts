@@ -86,6 +86,45 @@ export interface ApplicationDetail extends ApplicationSummary {
   updated_at: string | null;
 }
 
+export interface ScoreComponent {
+  component: string;
+  key: string;
+  score: number;
+  weight: number;
+}
+
+export interface CompareCandidate {
+  id: number;
+  candidate_name: string;
+  candidate_email: string;
+  score: number;
+  status: string;
+  experience_years: number | null;
+  confidence: number | null;
+  matched_skills: string[];
+  missing_skills: string[];
+  preferred_skills_matched: string[];
+  score_breakdown: ScoreComponent[];
+  verdict?: string;
+  extraction_limitations: string[];
+}
+
+export interface CompareResult {
+  job_id: number;
+  candidates: CompareCandidate[];
+  skill_matrix: Record<string, Record<string, 'matched' | 'missing'>>;
+}
+
+export interface JobInsights {
+  job_id: number;
+  total_applications: number;
+  by_status: Record<string, number>;
+  score: { avg: number | null; min: number | null; max: number | null };
+  avg_confidence: number | null;
+  top_missing_skills: [string, number][];
+  top_matched_skills: [string, number][];
+}
+
 export interface Analytics {
   total_jobs: number;
   total_applications: number;
@@ -122,6 +161,9 @@ export const atsApi = {
   exportCsv: (jobId: number) =>
     api.get(`/ats/jobs/${jobId}/export.csv`, { responseType: 'blob' }).then((r) => r.data as Blob),
   analytics: () => api.get<Analytics>('/ats/analytics').then((r) => r.data),
+  compare: (jobId: number, ids: number[]) =>
+    api.get<CompareResult>(`/ats/jobs/${jobId}/compare`, { params: { ids: ids.join(',') } }).then((r) => r.data),
+  insights: (jobId: number) => api.get<JobInsights>(`/ats/jobs/${jobId}/insights`).then((r) => r.data),
   listUsers: () => api.get<{ users: User[] }>('/ats/admin/users').then((r) => r.data.users),
   setUserRole: (id: number, role: string) =>
     api.patch<{ id: number; role: string }>(`/ats/admin/users/${id}/role`, { role }).then((r) => r.data),

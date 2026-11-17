@@ -5,7 +5,7 @@ import {
   Sparkles, Building2, Mail, AlertCircle, Loader2, ShieldCheck,
 } from 'lucide-react';
 import { atsApi } from '../lib/api';
-import type { Analytics, ApplicationDetail, ApplicationSummary, Job, User } from '../lib/api';
+import type { Analytics, ApplicationDetail, ApplicationSummary, CompareResult, Job, JobInsights, ScoreComponent, User } from '../lib/api';
 
 const STATUSES = ['new', 'reviewed', 'shortlisted', 'rejected', 'interview'];
 
@@ -109,6 +109,10 @@ const ApplicationDetailPanel = ({ appId, onClose, onUpdated }: {
     overall_score?: number; verdict?: string; explanation?: string;
     breakdown?: Record<string, number>; suggestions?: { tip: string; impact: string }[];
     confidence?: number; ai_reasoning?: string[];
+    score_breakdown?: ScoreComponent[];
+    preferred_skills?: string[]; preferred_skills_matched?: string[];
+    evidence?: { skill: string; snippet: string | null }[];
+    extraction_limitations?: string[];
   };
 
   const saveNotes = async () => {
@@ -155,6 +159,53 @@ const ApplicationDetailPanel = ({ appId, onClose, onUpdated }: {
         </div>
       )}
 
+      {Array.isArray(mr.score_breakdown) && mr.score_breakdown.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Score formula (weighted)</p>
+          <div className="space-y-1.5">
+            {mr.score_breakdown.map((c) => (
+              <div key={c.key} className="flex items-center gap-3 text-[11px]">
+                <span className="w-40 text-slate-400 truncate">{c.component}</span>
+                <div className="flex-1 progress-track"><div className="progress-fill" style={{ width: `${c.score}%`, backgroundColor: '#8b5cf6', color: '#8b5cf6' }} /></div>
+                <span className="font-mono text-slate-300 w-10 text-right">{Math.round(c.score)}</span>
+                <span className="font-mono text-slate-600 w-12 text-right">×{c.weight.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(mr.preferred_skills) && mr.preferred_skills.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-2">
+            Preferred skills ({(mr.preferred_skills_matched || []).length}/{mr.preferred_skills.length} found)
+          </p>
+          <SkillChips skills={mr.preferred_skills} tone={(mr.preferred_skills_matched || []).length ? 'matched' : 'missing'} />
+        </div>
+      )}
+
+      {Array.isArray(mr.evidence) && mr.evidence.some((e) => e.snippet) && (
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Resume evidence</p>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {mr.evidence.filter((e) => e.snippet).slice(0, 8).map((e, i) => (
+              <p key={i} className="text-[11px] text-slate-400 bg-white/[0.03] border border-white/5 rounded-lg px-3 py-1.5">
+                <span className="text-cyan-400 font-bold">{e.skill}:</span> {e.snippet}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(mr.extraction_limitations) && mr.extraction_limitations.length > 0 && (
+        <div className="bg-amber-500/[0.06] border border-amber-500/15 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1.5">Extraction limitations</p>
+          <ul className="space-y-1">
+            {mr.extraction_limitations.map((l, i) => <li key={i} className="text-[11px] text-amber-200/70">• {l}</li>)}
+          </ul>
+        </div>
+      )}
+
       {mr.explanation && <p className="text-xs text-slate-400 italic">"{mr.explanation}"</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -188,6 +239,86 @@ const ApplicationDetailPanel = ({ appId, onClose, onUpdated }: {
   );
 };
 
+/* ---------- Candidate comparison view ---------- */
+const CompareView = ({ data, onClose }: { data: CompareResult; onClose: () => void }) => {
+  const skills = Object.keys(data.skill_matrix);
+  return (
+    <div className="glass-panel p-6 space-y-5 animate-slide-up">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2"><Users className="w-5 h-5 text-violet-400" />Candidate comparison</h3>
+        <button onClick={onClose} className="text-slate-500 hover:text-white text-lg leading-none">×</button>
+      </div>
+
+      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${data.candidates.length}, minmax(0,1fr))` }}>
+        {data.candidates.map((c, rank) => (
+          <div key={c.id} className="bg-white/[0.03] border border-white/10 rounded-xl p-4 space-y-3">
+            <div>
+              <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Rank #{rank + 1}</p>
+              <p className="text-sm font-bold text-white truncate">{c.candidate_name || 'Unknown'}</p>
+              <p className="text-[10px] text-slate-500 truncate">{c.candidate_email}</p>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className={`text-2xl font-black font-mono ${c.score >= 70 ? 'text-emerald-400' : c.score >= 50 ? 'text-cyan-400' : 'text-red-400'}`}>{Math.round(c.score)}</span>
+              <span className="text-[9px] text-slate-500">{c.verdict || ''}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 space-y-0.5">
+              <p>Experience: {c.experience_years != null ? `${c.experience_years} yrs` : 'Unknown'}</p>
+              <p>Confidence: {c.confidence != null ? `${c.confidence}%` : '—'}</p>
+              <p>Preferred found: {c.preferred_skills_matched.length}</p>
+            </div>
+            <div className="space-y-1">
+              {c.score_breakdown.map((b) => (
+                <div key={b.key} className="flex items-center gap-2 text-[9px]">
+                  <span className="w-16 text-slate-500 truncate">{b.component.split(' ')[0]}</span>
+                  <div className="flex-1 progress-track"><div className="progress-fill" style={{ width: `${b.score}%`, backgroundColor: '#8b5cf6', color: '#8b5cf6' }} /></div>
+                  <span className="font-mono text-slate-400 w-6 text-right">{Math.round(b.score)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {skills.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Skill coverage matrix</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-slate-500 text-left">
+                  <th className="py-1.5 pr-3 font-semibold">Skill</th>
+                  {data.candidates.map((c) => <th key={c.id} className="py-1.5 px-2 font-semibold truncate max-w-[120px]">{c.candidate_name || `#${c.id}`}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {skills.map((s) => (
+                  <tr key={s} className="border-t border-white/5">
+                    <td className="py-1.5 pr-3 text-slate-300">{s}</td>
+                    {data.candidates.map((c) => {
+                      const st = data.skill_matrix[s]?.[String(c.id)];
+                      return (
+                        <td key={c.id} className="py-1.5 px-2 text-center">
+                          {st === 'matched' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 inline" /> :
+                           st === 'missing' ? <XCircle className="w-3.5 h-3.5 text-red-400/70 inline" /> :
+                           <span className="text-slate-700">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {data.candidates.some((c) => c.extraction_limitations.length > 0) && (
+        <p className="text-[10px] text-slate-600">Scores are screening aids for recruiter review — extraction limitations apply per candidate.</p>
+      )}
+    </div>
+  );
+};
+
 /* ---------- Main dashboard ---------- */
 export default function RecruiterDashboard({ user }: { user: User }) {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -204,6 +335,9 @@ export default function RecruiterDashboard({ user }: { user: User }) {
   const [screenMsg, setScreenMsg] = useState<string | null>(null);
   const [screenErr, setScreenErr] = useState<string | null>(null);
   const [screening, setScreening] = useState(false);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
+  const [compareData, setCompareData] = useState<CompareResult | null>(null);
+  const [insights, setInsights] = useState<JobInsights | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadJobs = useCallback(async () => {
@@ -227,6 +361,25 @@ export default function RecruiterDashboard({ user }: { user: User }) {
   useEffect(() => { loadJobs(); loadAnalytics(); }, [loadJobs, loadAnalytics]);
   useEffect(() => { if (user.role === 'admin') atsApi.listUsers().then(setUsers).catch(() => {}); }, [user.role]);
   useEffect(() => { if (selectedJob) loadApps(selectedJob); }, [selectedJob, loadApps]);
+  useEffect(() => {
+    setCompareIds([]); setCompareData(null);
+    if (selectedJob) {
+      atsApi.insights(selectedJob.id).then(setInsights).catch(() => setInsights(null));
+    } else {
+      setInsights(null);
+    }
+  }, [selectedJob]);
+
+  const toggleCompare = (id: number) => {
+    setCompareIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev);
+    setCompareData(null);
+  };
+
+  const runCompare = async () => {
+    if (!selectedJob || compareIds.length < 2) return;
+    try { setCompareData(await atsApi.compare(selectedJob.id, compareIds)); }
+    catch { setCompareData(null); }
+  };
 
   const saveJob = async (body: { title: string; description: string; location: string; status: string }) => {
     if (editingJob) await atsApi.updateJob(editingJob.id, body);
@@ -395,10 +548,30 @@ export default function RecruiterDashboard({ user }: { user: User }) {
                     <option value="newest">Newest first</option>
                   </select>
                   <input className="bg-white/5 border border-white/10 rounded-lg text-xs px-3 py-2 text-slate-300 w-32" placeholder="Min score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
+                  {compareIds.length >= 2 && (
+                    <button onClick={runCompare} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-violet-300 hover:text-violet-200 border border-violet-500/30 rounded-lg flex items-center gap-1.5">
+                      <Users className="w-3 h-3" /> Compare ({compareIds.length})
+                    </button>
+                  )}
                 </div>
+
+                {insights && insights.total_applications > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 pt-1 border-t border-white/5">
+                    <span className="text-[10px] text-slate-500"><span className="text-white font-bold font-mono">{insights.total_applications}</span> applicants</span>
+                    {Object.entries(insights.by_status).map(([s, n]) => (
+                      <span key={s} className="text-[10px] text-slate-500">{s}: <span className="text-slate-300 font-bold">{n}</span></span>
+                    ))}
+                    {insights.score.avg != null && <span className="text-[10px] text-slate-500">avg score <span className="text-cyan-400 font-bold font-mono">{Math.round(insights.score.avg)}</span></span>}
+                    {insights.top_missing_skills.length > 0 && (
+                      <span className="text-[10px] text-slate-500">top gap: <span className="text-amber-300/80">{insights.top_missing_skills[0][0]}</span></span>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {expandedId ? (
+              {compareData ? (
+                <CompareView data={compareData} onClose={() => setCompareData(null)} />
+              ) : expandedId ? (
                 <ApplicationDetailPanel appId={expandedId} onClose={() => setExpandedId(null)} onUpdated={() => { if (selectedJob) loadApps(selectedJob); loadAnalytics(); }} />
               ) : apps.length === 0 ? (
                 <div className="glass-panel p-12 text-center text-slate-600 text-xs">No applications yet. Upload candidate resumes above.</div>
@@ -407,6 +580,13 @@ export default function RecruiterDashboard({ user }: { user: User }) {
                   {apps.map((a, i) => (
                     <div key={a.id} className="glass-panel p-4">
                       <div className="flex flex-wrap items-center gap-4">
+                        <input
+                          type="checkbox"
+                          className="accent-violet-500 w-3.5 h-3.5 shrink-0"
+                          checked={compareIds.includes(a.id)}
+                          onChange={() => toggleCompare(a.id)}
+                          title="Select for comparison"
+                        />
                         <span className="text-slate-600 font-mono text-xs w-6">#{i + 1}</span>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-bold text-white truncate">{a.candidate_name || 'Unknown'}</p>

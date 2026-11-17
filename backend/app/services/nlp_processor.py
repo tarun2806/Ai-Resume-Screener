@@ -37,9 +37,7 @@ class AdvancedNLPProcessor:
         for skill in explicit:
             expanded_map.setdefault(skill.lower(), 1.0)
 
-        categorized: Dict[str, List[Dict[str, Any]]] = {
-            "domain": [], "tools": [], "soft": []
-        }
+        categorized: Dict[str, List[Dict[str, Any]]] = {}
         for skill, weight in expanded_map.items():
             category = get_skill_category(skill)
             info = {
@@ -47,12 +45,7 @@ class AdvancedNLPProcessor:
                 "is_inferred": weight < 1.0,
                 "confidence": "High" if weight >= 0.9 else "Medium" if weight >= 0.6 else "Low",
             }
-            if category == "Tool/Technology":
-                categorized["tools"].append(info)
-            elif category == "Soft Skill":
-                categorized["soft"].append(info)
-            else:
-                categorized["domain"].append(info)
+            categorized.setdefault(category, []).append(info)
 
         return {
             "raw_text": text,

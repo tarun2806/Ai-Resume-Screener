@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Deterministic skill vocabulary for resume/JD parsing.
 
@@ -54,6 +56,7 @@ SKILL_VOCABULARY: dict[str, list[str]] = {
     "Spark": ["spark", "pyspark", "apache spark"],
     "Hadoop": ["hadoop", "apache hadoop"],
     "Redux": ["redux"],
+    "RxJS": ["rxjs", "reactive extensions"],
     "Tailwind CSS": ["tailwind", "tailwindcss", "tailwind css"],
     "Bootstrap": ["bootstrap"],
     "Sass": ["sass", "scss"],
@@ -130,6 +133,31 @@ SKILL_VOCABULARY: dict[str, list[str]] = {
     "Full Stack": ["full stack", "full-stack", "fullstack"],
     "Project Management": ["project management", "project manager"],
     "Leadership": ["leadership", "team lead", "tech lead"],
+    # Additional cloud/data/security/testing terms referenced by the taxonomy
+    "Snowflake": ["snowflake"],
+    "BigQuery": ["bigquery", "big query"],
+    "Redshift": ["redshift"],
+    "Lambda": ["lambda", "aws lambda"],
+    "EC2": ["ec2", "elastic compute cloud"],
+    "S3": ["s3", "simple storage service"],
+    "CloudFormation": ["cloudformation", "cloud formation"],
+    "Supabase": ["supabase"],
+    "Pydantic": ["pydantic"],
+    "Transformers": ["transformers", "hugging face", "huggingface"],
+    "Statistics": ["statistics", "statistical"],
+    "Scrum": ["scrum"],
+    "Distributed Systems": ["distributed systems", "distributed system"],
+    "Architecture": ["software architecture", "system architecture"],
+    "Cybersecurity": ["cybersecurity", "cyber security", "infosec", "information security"],
+    "SIEM": ["siem", "security information and event management", "splunk", "qradar", "sentinel"],
+    "Incident Response": ["incident response", "ir planning", "security incident"],
+    "Network Security": ["network security", "netsec", "firewall", "ids", "ips"],
+    "Risk Assessment": ["risk assessment", "risk analysis", "risk management", "grc"],
+    "Compliance": ["compliance", "soc 2", "soc2", "iso 27001", "iso27001", "hipaa", "gdpr", "pci dss"],
+    "Penetration Testing": ["penetration testing", "pentest", "ethical hacking", "offensive security"],
+    "SageMaker": ["sagemaker", "aws sagemaker", "sagemaker sdk"],
+    "MLOps": ["mlops", "ml ops", "model deployment", "model serving"],
+    "CUDA": ["cuda", "gpu computing"],
 }
 
 # Build alias -> canonical lookup (first canonical wins for duplicate aliases)
@@ -141,6 +169,11 @@ for canonical, aliases in SKILL_VOCABULARY.items():
             ALIAS_TO_CANONICAL[key] = canonical
 
 ALL_CANONICAL_SKILLS = list(SKILL_VOCABULARY.keys())
+
+# Reverse map: canonical -> all aliases (for evidence lookup)
+CANONICAL_TO_ALIASES: dict[str, list[str]] = {
+    canonical: list(aliases) for canonical, aliases in SKILL_VOCABULARY.items()
+}
 
 
 def canonical_skill(name: str) -> str | None:

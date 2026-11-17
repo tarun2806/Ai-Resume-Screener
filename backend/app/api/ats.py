@@ -268,6 +268,113 @@ async def list_applications(
     return {"applications": [_app_summary(a) for a in q.limit(500).all()]}
 
 
+@router.get("/jobs/{job_id}/compare")
+async def compare_candidates(
+    job_id: int,
+    ids: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("recruiter", "admin")),
+):
+    """Side-by-side comparison of up to 5 applicants for one job."""
+    job = _get_job_or_404(db, job_id, user)
+    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()][:5]
+    if not id_list:
+        raise HTTPException(status_code=400, detail="Provide application ids via ?ids=1,2,3")
+
+    apps = (
+        db.query(Application)
+        .filter(Application.job_id == job.id, Application.id.in_(id_list))
+        .all()
+    )
+    if not apps:
+        raise HTTPException(status_code=404, detail="No matching applications for this job")
+
+    candidates = []
+    skill_states: dict = {}  # skill_lower -> {app_id: "matched"|"missing"}
+    for app in apps:
+        summary = _app_summary(app)
+        mr = json.loads(app.match_result or "{}")
+        breakdown = mr.get("score_breakdown") or []
+        matched = { (s or "").lower() for s in summary.get("matched_skills", []) }
+        missing = { (s or "").lower() for s in summary.get("missing_skills", []) }
+        for s in matched | missing:
+            skill_states.setdefault(s, {})[str(app.id)] = (
+                "matched" if s in matched else "missing"
+            )
+        candidates.append({
+            "id": app.id,
+            "candidate_name": summary["candidate_name"],
+            "candidate_email": summary["candidate_email"],
+            "score": app.score,
+            "status": app.status,
+            "experience_years": summary.get("experience_years"),
+            "confidence": summary.get("confidence"),
+            "matched_skills": summary.get("matched_skills", []),
+            "missing_skills": summary.get("missing_skills", []),
+            "preferred_skills_matched": mr.get("preferred_skills_matched", []),
+            "score_breakdown": breakdown,
+            "verdict": mr.get("verdict"),
+            "extraction_limitations": mr.get("extraction_limitations", []),
+        })
+
+    # Deterministic ranking: score desc, then id asc for ties
+    candidates.sort(key=lambda c: (-c["score"], c["id"]))
+    return {
+        "job_id": job.id,
+        "candidates": candidates,
+        "skill_matrix": {
+            skill: states for skill, states in sorted(skill_states.items())
+        },
+    }
+
+
+@router.get("/jobs/{job_id}/insights")
+async def job_insights(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("recruiter", "admin")),
+):
+    """Recruiting funnel + skill-gap analytics for one job."""
+    job = _get_job_or_404(db, job_id, user)
+    apps = db.query(Application).filter(Application.job_id == job.id).all()
+
+    by_status: dict = {}
+    scores = []
+    confs = []
+    missing_freq: dict = {}
+    matched_freq: dict = {}
+    for app in apps:
+        by_status[app.status] = by_status.get(app.status, 0) + 1
+        if app.score is not None:
+            scores.append(app.score)
+        parsed = {}
+        try:
+            parsed = json.loads(app.parsed_profile or "{}")
+        except Exception:
+            pass
+        if parsed.get("confidence") is not None:
+            confs.append(parsed["confidence"])
+        for s in parsed.get("missing_skills", []):
+            missing_freq[s] = missing_freq.get(s, 0) + 1
+        for s in parsed.get("matched_skills", []):
+            matched_freq[s] = matched_freq.get(s, 0) + 1
+
+    n = len(apps)
+    return {
+        "job_id": job.id,
+        "total_applications": n,
+        "by_status": by_status,
+        "score": {
+            "avg": round(sum(scores) / len(scores), 2) if scores else None,
+            "min": min(scores) if scores else None,
+            "max": max(scores) if scores else None,
+        },
+        "avg_confidence": round(sum(confs) / len(confs), 1) if confs else None,
+        "top_missing_skills": sorted(missing_freq.items(), key=lambda kv: (-kv[1], kv[0]))[:10],
+        "top_matched_skills": sorted(matched_freq.items(), key=lambda kv: (-kv[1], kv[0]))[:10],
+    }
+
+
 @router.get("/applications/{app_id}")
 async def get_application(
     app_id: int,

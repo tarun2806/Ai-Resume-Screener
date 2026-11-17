@@ -1,0 +1,65 @@
+{
+  "description": "Synthetic labeled benchmark for resume-JD matching. relevance: 0=irrelevant, 1=partial, 2=strong.",
+  "jobs": [
+    {
+      "id": "jd_backend_python",
+      "description": "Senior Backend Engineer. Requirements: 5+ years experience, Python, FastAPI or Django, PostgreSQL, Docker, AWS. Preferred: Kubernetes, GraphQL, Machine Learning. Build and maintain REST APIs and microservices.",
+      "candidates": [
+        {"id": "r_strong", "relevance": 2, "resume": "Maria Gonzalez\nmaria@email.com\n\nExperience\nSenior Backend Engineer at FinTech Corp, 2018 - Present (7 years)\n- Built REST APIs with Python, FastAPI, Django\n- PostgreSQL databases, Docker containers, AWS deployment\n- Mentored engineers\n\nEducation\nB.S. Computer Science, 2018\n\nSkills\nPython, FastAPI, Django, PostgreSQL, Docker, AWS, SQL, REST API"},
+        {"id": "r_partial", "relevance": 1, "resume": "Tom Becker\ntom@email.com\n\nExperience\nBackend Developer at StartupXYZ, 2021 - Present (4 years)\n- Python services with Flask\n- PostgreSQL and Redis\n- Some Docker usage\n\nEducation\nB.S. Computer Science, 2021\n\nSkills\nPython, Flask, PostgreSQL, Redis, Docker, SQL"},
+        {"id": "r_terminology", "relevance": 1, "resume": "Aisha Khan\naisha@email.com\n\nExperience\nSoftware Engineer, 2019 - Present\n- Designed web services using py and relational databases\n- containerized deployments on amazon cloud\n\nEducation\nBS CS 2019\n\nSkills\nPython, REST, PostgreSQL, Docker, AWS, MySQL"},
+        {"id": "r_irrelevant", "relevance": 0, "resume": "Leo Martinez\nleo@email.com\n\nExperience\nGraphic Designer at StudioArt, 2016 - Present\n- Brand identity, print design, photo editing\n\nEducation\nBFA Design, 2016\n\nSkills\nPhotoshop, Illustrator, InDesign, Figma, Branding"}
+      ]
+    },
+    {
+      "id": "jd_frontend_react",
+      "description": "Frontend Developer. Requirements: 3+ years, React, TypeScript, JavaScript, CSS, REST API integration, Git. Preferred: Next.js, Tailwind CSS, GraphQL. Build responsive web applications.",
+      "candidates": [
+        {"id": "f_strong", "relevance": 2, "resume": "Emma Wilson\nemma@email.com\n\nExperience\nFrontend Engineer at ShopCo, 2020 - Present (5 years)\n- React and TypeScript applications\n- REST API integration, responsive CSS layouts\n- Git workflows, code reviews\n\nEducation\nB.S. Software Engineering, 2020\n\nSkills\nReact, TypeScript, JavaScript, CSS, HTML, REST API, Git, Next.js, Tailwind CSS"},
+        {"id": "f_partial", "relevance": 1, "resume": "Raj Patel\nraj@email.com\n\nExperience\nWeb Developer at AgencyPro, 2022 - Present (3 years)\n- JavaScript and React components\n- CSS styling, basic API calls\n\nEducation\nB.S. IT, 2022\n\nSkills\nJavaScript, React, CSS, HTML, Git"},
+        {"id": "f_backend", "relevance": 0, "resume": "Chris Novak\nchris@email.com\n\nExperience\nBackend Engineer at DataSys, 2019 - Present\n- Python APIs, PostgreSQL, microservices\n- No frontend work\n\nEducation\nB.S. CS, 2019\n\nSkills\nPython, FastAPI, PostgreSQL, Docker, AWS, SQL"},
+        {"id": "f_falsepos", "relevance": 0, "resume": "Nina Rossi\nnina@email.com\n\nExperience\nMarketing Manager at BrandCo, 2018 - Present\n- Campaigns, SEO, social media\n- Managed React-based landing page vendor\n\nEducation\nB.A. Marketing, 2018\n\nSkills\nSEO, Content Marketing, Social Media, Analytics, Figma"}
+      ]
+    },
+    {
+      "id": "jd_data_engineer",
+      "description": "Data Engineer. Requirements: 4+ years, Python or Scala, SQL, Spark or Airflow, cloud data warehouses (Snowflake/BigQuery/Redshift), ETL pipelines. Preferred: dbt, Kafka, Kubernetes.",
+      "candidates": [
+        {"id": "d_strong", "relevance": 2, "resume": "Wei Zhang\nwei@email.com\n\nExperience\nData Engineer at RetailMax, 2019 - Present (6 years)\n- Built ETL pipelines with Python and Spark\n- Snowflake and BigQuery data warehouses\n- Airflow orchestration, dbt models\n\nEducation\nM.S. Data Science, 2019\n\nSkills\nPython, SQL, Spark, Airflow, Snowflake, BigQuery, ETL, dbt, Kafka"},
+        {"id": "d_partial", "relevance": 1, "resume": "Sofia Marino\nsofia@email.com\n\nExperience\nAnalytics Engineer at FinServ, 2021 - Present (4 years)\n- SQL-heavy reporting, Python scripts\n- Some Airflow DAGs\n\nEducation\nB.S. Statistics, 2021\n\nSkills\nPython, SQL, Airflow, Excel, Tableau"},
+        {"id": "d_ml", "relevance": 1, "resume": "David Kim\ndavid@email.com\n\nExperience\nML Engineer at AI Labs, 2020 - Present (5 years)\n- PyTorch model training, feature pipelines\n- Python, SQL, some Spark\n\nEducation\nPhD ML, 2020\n\nSkills\nPython, PyTorch, TensorFlow, SQL, Spark, Machine Learning"},
+        {"id": "d_irrelevant", "relevance": 0, "resume": "Anna Schmidt\nanna@email.com\n\nExperience\nHR Business Partner, 2017 - Present\n- Recruitment, employee relations\n\nEducation\nB.A. Psychology, 2017\n\nSkills\nRecruitment, HRIS, Communication, Excel"}
+      ]
+    },
+    {
+      "id": "jd_devops",
+      "description": "DevOps Engineer. Requirements: 4+ years, Linux, Docker, Kubernetes, CI/CD, AWS or Azure, scripting (Python/Bash), monitoring. Preferred: Terraform, Prometheus, Kafka.",
+      "candidates": [
+        {"id": "o_strong", "relevance": 2, "resume": "James O'Neil\njames@email.com\n\nExperience\nDevOps Engineer at CloudFirst, 2018 - Present (7 years)\n- Kubernetes clusters, Docker images\n- CI/CD with Jenkins and GitHub Actions\n- AWS infrastructure, Terraform, Prometheus monitoring\n- Python and Bash scripting\n\nEducation\nB.S. CS, 2018\n\nSkills\nLinux, Docker, Kubernetes, CI/CD, AWS, Python, Bash, Terraform, Prometheus, Jenkins"},
+        {"id": "o_partial", "relevance": 1, "resume": "Lisa Chen\nlisa@email.com\n\nExperience\nSystem Administrator at NetOps, 2020 - Present (5 years)\n- Linux servers, Docker basics\n- Some CI pipeline maintenance\n\nEducation\nA.S. IT, 2020\n\nSkills\nLinux, Docker, Bash, AWS basics, Python"},
+        {"id": "o_frontend", "relevance": 0, "resume": "Paul Dubois\npaul@email.com\n\nExperience\nFrontend Developer, 2021 - Present\n- React, TypeScript, CSS\n\nEducation\nB.S. CS, 2021\n\nSkills\nReact, TypeScript, JavaScript, CSS, HTML, Git"},
+        {"id": "o_missing_req", "relevance": 0, "resume": "Grace Liu\ngrace@email.com\n\nExperience\nJunior IT Support, 2023 - Present (1 year)\n- Helpdesk, Windows admin\n\nEducation\nA.S. IT, 2023\n\nSkills\nWindows, Helpdesk, Microsoft Office, Basic networking"}
+      ]
+    },
+    {
+      "id": "jd_ml_engineer",
+      "description": "Machine Learning Engineer. Requirements: 4+ years, Python, PyTorch or TensorFlow, scikit-learn, model deployment, SQL. Preferred: NLP, computer vision, AWS SageMaker, MLOps. Design and ship production ML systems.",
+      "candidates": [
+        {"id": "m_strong", "relevance": 2, "resume": "Priya Sharma\npriya@email.com\n\nExperience\nML Engineer at VisionAI, 2019 - Present (6 years)\n- Trained and deployed PyTorch and TensorFlow models\n- scikit-learn pipelines, SQL feature stores, SageMaker endpoints\n- NLP and computer vision systems in production\n\nEducation\nM.S. Computer Science, 2019\n\nSkills\nPython, PyTorch, TensorFlow, scikit-learn, SQL, AWS, SageMaker, NLP, Computer Vision, MLOps"},
+        {"id": "m_partial", "relevance": 1, "resume": "Marco Rossi\nmarco@email.com\n\nExperience\nData Scientist at RetailCo, 2021 - Present (4 years)\n- Python analysis, scikit-learn models\n- Some TensorFlow experimentation\n\nEducation\nB.S. Statistics, 2021\n\nSkills\nPython, scikit-learn, TensorFlow, SQL, pandas, Excel"},
+        {"id": "m_terminology", "relevance": 1, "resume": "Hana Sato\nhana@email.com\n\nExperience\nApplied Scientist, 2020 - Present\n- deep learning with pytorch, sklearn pipelines\n- deployed models to cloud, sql databases\n\nEducation\nMS CS 2020\n\nSkills\nPython, PyTorch, scikit-learn, SQL, AWS, Deep Learning"},
+        {"id": "m_irrelevant", "relevance": 0, "resume": "Victor Hugo\nvictor@email.com\n\nExperience\nAccount Executive at SalesPro, 2017 - Present\n- Enterprise sales, CRM management\n\nEducation\nB.A. Business, 2017\n\nSkills\nSalesforce, Negotiation, CRM, Excel, Public Speaking"}
+      ]
+    },
+    {
+      "id": "jd_security_analyst",
+      "description": "Security Analyst. Requirements: 3+ years, cybersecurity fundamentals, SIEM tools, network security, incident response, risk assessment. Preferred: CISSP, Python scripting, cloud security (AWS/Azure), compliance (SOC2, ISO27001).",
+      "candidates": [
+        {"id": "s_strong", "relevance": 2, "resume": "Rachel Green\nrachel@email.com\n\nExperience\nSecurity Analyst at BankSecure, 2020 - Present (5 years)\n- SIEM monitoring and incident response\n- Network security assessments, risk analysis\n- Python automation scripts, AWS security controls\n- SOC2 compliance evidence collection\n\nEducation\nB.S. Cybersecurity, 2020\n\nSkills\nCybersecurity, SIEM, Incident Response, Network Security, Python, AWS, Risk Assessment, SOC2, Compliance"},
+        {"id": "s_partial", "relevance": 1, "resume": "Omar Farouk\nomar@email.com\n\nExperience\nIT Support Specialist at TechFirm, 2021 - Present (4 years)\n- Helpdesk, basic network troubleshooting\n- Some security awareness training delivery\n\nEducation\nA.S. IT, 2021\n\nSkills\nNetworking, Windows, Helpdesk, Communication"},
+        {"id": "s_cloud_only", "relevance": 1, "resume": "Ingrid Larsen\ningrid@email.com\n\nExperience\nCloud Engineer at HostCo, 2019 - Present (6 years)\n- AWS and Azure infrastructure, some security group config\n- Python scripting for automation\n\nEducation\nB.S. CS, 2019\n\nSkills\nAWS, Azure, Python, Linux, Docker, Terraform"},
+        {"id": "s_irrelevant", "relevance": 0, "resume": "Diego Torres\ndiego@email.com\n\nExperience\nElementary Teacher, 2015 - Present\n- Classroom instruction, curriculum planning\n\nEducation\nB.A. Education, 2015\n\nSkills\nTeaching, Curriculum Design, Classroom Management"}
+      ]
+    }
+  ]
+}

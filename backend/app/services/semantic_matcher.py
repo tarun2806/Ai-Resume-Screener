@@ -3,7 +3,7 @@ import re
 from typing import Dict, Any, List, Optional
 
 from app.ml.skill_vocabulary import canonical_skill
-from app.ml.ontology import SKILL_ONTOLOGY
+from app.ml.ontology import related_skills_for
 
 
 def _text_cosine(text1: str, text2: str) -> float:
@@ -36,21 +36,21 @@ class SemanticMatcher:
     """
     Deterministic, explainable matcher.
 
-    Score components (weights sum to 1.0):
-      - skill_overlap      0.45  canonical skill coverage of JD requirements
-      - semantic_similarity 0.35 TF-IDF cosine between resume and JD text
-      - experience_fit     0.20  years-of-experience vs requirement
+    Score components (weights configurable, default sum to 1.0):
+      - skill_overlap        0.35  canonical skill coverage of JD requirements
+      - preferred_match      0.05  coverage of JD "preferred/nice-to-have" skills
+      - semantic_similarity  0.30  TF-IDF cosine between resume and JD text
+      - experience_fit       0.15  years-of-experience vs requirement
+      - education_fit        0.15  degree/qualification requirement vs resume
 
     No randomness, no fabricated values: unknown experience yields a
     neutral 0.5 component rather than an invented number.
     """
 
-    def __init__(self, model_name: Optional[str] = None):
-        self.weights = {
-            "semantic_similarity": 0.35,
-            "skill_overlap": 0.45,
-            "experience_fit": 0.20,
-        }
+    def __init__(self, model_name: Optional[str] = None, weights: Optional[Dict[str, float]] = None):
+        from app.config import get_scoring_weights
+
+        self.weights = weights or get_scoring_weights()
 
     @staticmethod
     def _canon_set(skills: List[str]) -> set:
@@ -62,16 +62,18 @@ class SemanticMatcher:
 
     @staticmethod
     def _has_related_skill(jd_skill: str, res_skills: set) -> bool:
-        """True if the resume contains a skill ontology-related to the JD skill."""
-        entry = SKILL_ONTOLOGY.get(jd_skill.lower()) or SKILL_ONTOLOGY.get(jd_skill)
-        if entry:
-            related = {r.lower() for r in entry.get("related", {})}
-            if related & res_skills:
-                return True
+        """True if the resume contains a skill related to the JD skill.
+
+        Uses the merged ontology + taxonomy relation graph. Related skills
+        earn only partial credit (0.4) — they are NOT treated as equivalent
+        qualifications.
+        """
+        related = related_skills_for(jd_skill)
+        if {r.lower() for r in related} & res_skills:
+            return True
         # reverse direction: resume skill declares the JD skill as related
         for rs in res_skills:
-            re_entry = SKILL_ONTOLOGY.get(rs)
-            if re_entry and jd_skill.lower() in {r.lower() for r in re_entry.get("related", {})}:
+            if jd_skill.lower() in related_skills_for(rs):
                 return True
         return False
 
@@ -104,6 +106,22 @@ class SemanticMatcher:
         else:
             skill_overlap = 0.5  # neutral when JD yields no extractable skills
 
+        # 2b. Preferred-skill coverage ("nice to have" / "preferred" section).
+        # Neutral rule: when the JD lists no preferred skills, this component
+        # mirrors required-skill coverage so it neither rewards nor penalizes.
+        pref_raw = jd_data.get("preferred_skills") or []
+        pref_skills = self._canon_set(pref_raw)
+        if pref_skills:
+            earned = 0.0
+            for s in pref_skills:
+                if s in res_skills:
+                    earned += 1.0
+                elif self._has_related_skill(s, res_skills):
+                    earned += 0.4
+            preferred_match = earned / len(pref_skills)
+        else:
+            preferred_match = skill_overlap
+
         # 3. Experience fit
         actual_exp = resume_data.get("experience_years")
         required_exp = jd_data.get("min_years_experience") or 0
@@ -114,19 +132,40 @@ class SemanticMatcher:
         else:
             exp_fit = 1.0
 
+        # 4. Education / qualification fit.
+        # required_degree comes from JD parsing ("bachelor"/"master"/"phd"/None).
+        # Neutral rule: no degree requirement in JD -> 1.0 (no penalty).
+        required_degree = (jd_data.get("required_degree") or "").lower().strip()
+        edu_text = (resume_data.get("education_text") or "").lower()
+        if not required_degree:
+            education_fit = 1.0
+        elif not edu_text:
+            education_fit = 0.0  # required but nothing found in resume
+        elif required_degree in edu_text or "phd" in edu_text or "doctorate" in edu_text:
+            education_fit = 1.0
+        elif required_degree == "master" and "bachelor" in edu_text:
+            education_fit = 0.5  # bachelor's does not satisfy a master's req
+        else:
+            education_fit = 0.7
+
+        w = self.weights
         final_score = (
-            semantic_sim * self.weights["semantic_similarity"]
-            + skill_overlap * self.weights["skill_overlap"]
-            + exp_fit * self.weights["experience_fit"]
+            skill_overlap * w.get("skill_overlap", 0.35)
+            + preferred_match * w.get("preferred_match", 0.05)
+            + semantic_sim * w.get("semantic_similarity", 0.30)
+            + exp_fit * w.get("experience_fit", 0.15)
+            + education_fit * w.get("education_fit", 0.15)
         ) * 100
 
         return {
             "candidate_name": resume_data.get("name", "Unknown"),
             "final_score": round(final_score, 2),
             "breakdown": {
-                "semantic_similarity": round(semantic_sim * 100, 2),
                 "skill_overlap": round(skill_overlap * 100, 2),
+                "preferred_match": round(preferred_match * 100, 2),
+                "semantic_similarity": round(semantic_sim * 100, 2),
                 "experience_fit": round(exp_fit * 100, 2),
+                "education_fit": round(education_fit * 100, 2),
             },
         }
 
