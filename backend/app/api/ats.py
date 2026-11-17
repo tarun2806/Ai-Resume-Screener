@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import json
 from datetime import timedelta
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require_roles
 from app.db import Application, Job, User, get_db, utcnow
 from app.services.analysis import run_analysis, extract_min_years
+from app.services.storage import generate_key, get_storage
 from app.services.nlp_processor import AdvancedNLPProcessor
 from app.services.tenancy import (
     get_org_job_or_404,
@@ -110,6 +112,17 @@ def _screen_one(file_bytes: bytes, filename: str, job: Job) -> dict:
     result = run_analysis(text, job.description)
     result["_resume_text"] = text
     return result
+
+
+def _store_resume(org_id: int | None, content: bytes, filename: str) -> tuple[str, str]:
+    """Persist original resume bytes to private storage.
+    Returns (storage_key, sha256 content hash). Raises on storage failure —
+    callers must not create an application without its stored file."""
+    import os
+    ext = os.path.splitext(filename or "")[1].lower()
+    key = generate_key(org_id, ext)
+    get_storage().put(key, content)
+    return key, hashlib.sha256(content).hexdigest()
 
 
 # ---------- jobs ----------
@@ -227,12 +240,15 @@ async def screen_resumes(
             errors.append({"file": f.filename, "error": f"Processing failed: {e}"})
             continue
 
+        storage_key, content_hash = _store_resume(job.organization_id, content, f.filename or "")
         candidate = analysis.get("candidate", {})
         app = Application(
             job_id=job.id,
             candidate_name=candidate.get("name") or "",
             candidate_email=candidate.get("email") or "",
             resume_filename=f.filename or "",
+            resume_storage_key=storage_key,
+            content_hash=content_hash,
             resume_text=analysis.pop("_resume_text", ""),
             parsed_profile=json.dumps({
                 "skills": candidate.get("skills", []),
@@ -421,6 +437,37 @@ async def get_application(
     return summary
 
 
+@router.get("/applications/{app_id}/resume")
+async def download_resume(
+    app_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stream the stored original resume. Never a public URL — every
+    download is authorized: candidates get only their own file, recruiters
+    must be a member of the job's organization."""
+    app = db.query(Application).filter(Application.id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if user.role == "candidate" and app.candidate_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your application")
+    if user.role == "recruiter":
+        _get_job_or_404(db, app.job_id, user)
+    if not app.resume_storage_key:
+        raise HTTPException(status_code=404, detail="No stored resume for this application")
+    try:
+        content = get_storage().get(app.resume_storage_key)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Stored resume unavailable")
+    # Sanitize filename for Content-Disposition (no path components)
+    safe_name = (app.resume_filename or "resume").replace('"', "").replace(chr(92), "/").split("/")[-1] or "resume"
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=\"" + safe_name + "\""},
+    )
+
+
 @router.patch("/applications/{app_id}")
 async def update_application(
     app_id: int,
@@ -472,6 +519,7 @@ async def apply_to_job(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process resume: {e}")
 
+    storage_key, content_hash = _store_resume(job.organization_id, content, file.filename or "")
     candidate = analysis.get("candidate", {})
     app = Application(
         job_id=job.id,
@@ -479,6 +527,8 @@ async def apply_to_job(
         candidate_name=user.name or candidate.get("name") or "",
         candidate_email=user.email,
         resume_filename=file.filename or "",
+        resume_storage_key=storage_key,
+        content_hash=content_hash,
         resume_text=analysis.pop("_resume_text", ""),
         parsed_profile=json.dumps({
             "skills": candidate.get("skills", []),
@@ -551,6 +601,14 @@ async def delete_my_account(
     """Permanently delete the account and all associated candidate data.
     Recruiter/admin accounts must be deleted by an administrator to avoid
     orphaning jobs and applicant records."""
+    apps = db.query(Application).filter(Application.candidate_id == user.id).all()
+    storage = get_storage()
+    for a in apps:
+        if a.resume_storage_key:
+            try:
+                storage.delete(a.resume_storage_key)
+            except Exception:
+                pass  # best-effort; DB record deletion proceeds regardless
     db.query(Application).filter(Application.candidate_id == user.id).delete()
     db.delete(user)
     db.commit()
@@ -687,8 +745,15 @@ async def purge_expired_resume_text(
     cutoff = utcnow() - timedelta(days=days)
     stale = db.query(Application).filter(Application.created_at < cutoff).all()
     purged = 0
+    storage = get_storage()
     for a in stale:
-        if a.resume_text or a.match_result not in ("", "{}"):
+        if a.resume_text or a.match_result not in ("", "{}") or a.resume_storage_key:
+            if a.resume_storage_key:
+                try:
+                    storage.delete(a.resume_storage_key)
+                except Exception:
+                    pass
+            a.resume_storage_key = ""
             a.resume_text = ""
             a.match_result = "{}"
             a.parsed_profile = "{}"

@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # Expected keys: skill_overlap, preferred_match, semantic_similarity,
     # experience_fit, education_fit (weights are renormalized to sum to 1).
     scoring_weights_json: str = os.getenv("SCORING_WEIGHTS", "")
+    # Private resume storage: "local" (dev) or "s3" (S3-compatible, prod).
+    storage_backend: str = os.getenv("STORAGE_BACKEND", "local")
+    storage_dir: str = os.getenv("STORAGE_DIR", "")
+    s3_bucket: str = os.getenv("S3_BUCKET", "")
+    s3_endpoint_url: str = os.getenv("S3_ENDPOINT_URL", "")
+    s3_region: str = os.getenv("AWS_REGION", "us-east-1")
+    s3_access_key: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    s3_secret_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
     @property
     def is_production(self) -> bool:

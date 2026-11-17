@@ -83,6 +83,8 @@ class Application(Base):
     candidate_name = Column(String(255), default="")
     candidate_email = Column(String(255), default="", index=True)
     resume_filename = Column(String(255), default="")
+    resume_storage_key = Column(String(300), default="", index=True)
+    content_hash = Column(String(64), default="", index=True)
     resume_text = Column(Text, default="")
     parsed_profile = Column(Text, default="{}")   # JSON
     match_result = Column(Text, default="{}")      # JSON
